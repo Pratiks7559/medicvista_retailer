@@ -1,0 +1,1 @@
+"""MedicVista retailer desktop application."""

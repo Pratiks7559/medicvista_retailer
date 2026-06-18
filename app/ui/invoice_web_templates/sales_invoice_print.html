@@ -1,0 +1,182 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Sales Invoice Print</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 10px; }
+    .invoice { width: 390px; font-size: 11px; line-height: 1.2; border: 1px solid #ddd; padding: 10px; background: #fff; }
+    .center { text-align:center; }
+    .line { border-bottom: 1px dashed #000; margin: 4px 0; }
+    .bold { font-weight: bold; }
+    table { width: 100%; border-collapse: collapse; font-size: 10px; }
+    td, th { padding: 1px 2px; text-align: left; vertical-align: top; }
+    .right { text-align:right; }
+
+    @media print {
+      body { margin: 0; }
+      .invoice { border: none; width: 100%; padding: 0; }
+    }
+  </style>
+</head>
+<body>
+  <div class="invoice" id="invoice-root">
+    <div class="bold" style="font-size:14px;">MEDICVISTA PHARMA PVT. LTD.</div>
+    <div>Midc Nagar, Bhusawal, District Jalgaon (MH-271)</div>
+    <div>Drug License No: DL-MH-JLG-20B-1234, DL-MH-JLG-21B-5678</div>
+    <div>GST No: <span id="gst_no">27ABCDE1234F1Z5</span> &nbsp;&nbsp;&nbsp;&nbsp; Phone: +91-9876543210</div>
+    <div>Email: info@medicvista.com</div>
+
+    <div class="line"></div>
+
+    <div>
+      <strong id="invoice_type">GST INV (CASH)</strong><br/>
+      Invoice No: <span id="invoice_no">INV001</span><br/>
+      Date: <span id="invoice_date">03/02/26</span> Time: <span id="invoice_time">15:13</span>
+    </div>
+
+    <div class="line"></div>
+
+    <div style="display:flex; justify-content:space-between;">
+      <div style="width:70%;">
+        Patient Name: <span id="patient_name">_________________</span><br/>
+        Doctor Name: <span id="doctor_name">_________________</span><br/>
+        Address: <span id="address">_________________</span><br/>
+        Consultant: <span id="consultant">Dr. Name</span>
+      </div>
+      <div style="width:28%; text-align:right;">Medi Quest</div>
+    </div>
+
+    <div class="line"></div>
+
+    <table>
+      <thead>
+        <tr>
+          <th><strong>Qty</strong></th>
+          <th><strong>Item Name</strong></th>
+          <th><strong>Pack</strong></th>
+          <th><strong>Mfr</strong></th>
+          <th><strong>Batch</strong></th>
+          <th><strong>Exp</strong></th>
+          <th class="right"><strong>Amt</strong></th>
+          <th><strong>HSN</strong></th>
+          <th class="right"><strong>Tax%</strong></th>
+        </tr>
+      </thead>
+      <tbody id="items_tbody">
+        <!-- rows injected -->
+      </tbody>
+    </table>
+
+    <div class="line"></div>
+
+    <div class="right">Round off: <span id="round_off">0.00</span></div>
+
+    <div class="line"></div>
+
+    <table>
+      <tbody>
+        <tr>
+          <td>CGST</td><td class="right"><span id="cgst">0.00</span></td>
+        </tr>
+        <tr>
+          <td>SGST</td><td class="right"><span id="sgst">0.00</span></td>
+        </tr>
+        <tr>
+          <td><strong>Total GST</strong></td>
+          <td class="right"><strong><span id="total_gst">0.00</span></strong></td>
+        </tr>
+      </tbody>
+    </table>
+
+    <div class="line"></div>
+
+    <div class="center bold" style="font-size:14px;">
+      TOTAL: <span id="grand_total">0.00</span>
+    </div>
+
+    <div class="line"></div>
+
+    <div class="center">For MEDICVISTA PHARMA PVT. LTD.</div>
+
+    <div>
+      <strong>Consult doctor before use</strong><br/>
+      Subject to Bhusawal Jurisdiction<br/>
+      Thank you for your visit!
+    </div>
+  </div>
+
+  <script>
+    // The app is expected to inject window.SALES_INVOICE_DATA before printing.
+    // Shape (best-effort):
+    // {
+    //   invoice_no, invoice_date, invoice_time,
+    //   customer_name(optional mapping), address(optional),
+    //   items:[{qty, name, packing, mfr, batch, expiry, amount, hsn, tax_percent}],
+    //   round_off, cgst, sgst, total_gst, grand_total
+    // }
+    (function(){
+      const data = window.SALES_INVOICE_DATA || {};
+
+      function setText(id, v){
+        const el = document.getElementById(id);
+        if(el) el.textContent = (v === undefined || v === null) ? '' : String(v);
+      }
+
+      setText('invoice_no', data.invoice_no || 'INV001');
+      setText('invoice_date', data.invoice_date || '');
+      setText('invoice_time', data.invoice_time || '');
+      setText('gst_no', data.gst_no || '27ABCDE1234F1Z5');
+
+      setText('patient_name', data.patient_name || data.customer_name || '_________________');
+      setText('doctor_name', data.doctor_name || '_________________');
+      setText('address', data.address || '_________________');
+      setText('consultant', data.consultant || 'Dr. Name');
+
+      setText('round_off', (data.round_off !== undefined ? Number(data.round_off).toFixed(2) : '0.00'));
+      setText('cgst', (data.cgst !== undefined ? Number(data.cgst).toFixed(2) : '0.00'));
+      setText('sgst', (data.sgst !== undefined ? Number(data.sgst).toFixed(2) : '0.00'));
+      setText('total_gst', (data.total_gst !== undefined ? Number(data.total_gst).toFixed(2) : '0.00'));
+      setText('grand_total', (data.grand_total !== undefined ? Number(data.grand_total).toFixed(2) : '0.00'));
+
+      const tbody = document.getElementById('items_tbody');
+      const items = Array.isArray(data.items) ? data.items : [];
+      tbody.innerHTML = '';
+      if(items.length === 0){
+        tbody.innerHTML = `
+          <tr>
+            <td>1</td><td>Medicine</td><td>TAB 10's</td><td>MFR</td><td>Batch</td><td>12/26</td>
+            <td class="right">0.00</td><td>3004</td><td class="right">5%</td>
+          </tr>`;
+      } else {
+        items.forEach(it => {
+          const qty = (it.qty !== undefined && it.qty !== null) ? it.qty : 1;
+          const name = it.name || it.item_name || '';
+          const pack = it.packing || '';
+          const mfr = it.mfr || '';
+          const batch = it.batch || '';
+          const exp = it.expiry || it.exp || '';
+          const amt = Number((it.amount !== undefined && it.amount !== null) ? it.amount : 0).toFixed(2);
+          const hsn = it.hsn || '';
+          const tax = it.tax_percent ?? it.tax || 0;
+          tbody.insertAdjacentHTML('beforeend', `
+            <tr>
+              <td>${qty}</td>
+              <td>${name}</td>
+              <td>${pack}</td>
+              <td>${mfr}</td>
+              <td>${batch}</td>
+              <td>${exp}</td>
+              <td class="right">${amt}</td>
+              <td>${hsn}</td>
+              <td class="right">${tax}%</td>
+            </tr>
+          `);
+        });
+      }
+    })();
+  </script>
+</body>
+</html>
+

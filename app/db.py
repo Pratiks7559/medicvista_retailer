@@ -4,6 +4,8 @@ import logging
 from contextlib import contextmanager
 from typing import Any, Iterable
 
+logger = logging.getLogger('retailer_sync')
+
 try:
     import pymysql
     from pymysql.cursors import DictCursor
@@ -212,18 +214,17 @@ class Database:
 
     def fetch_products(self, search: str = "") -> list[dict[str, Any]]:
         if not self.table_exists("core_productmaster"): return []
-        params: list[Any] = []
-        where = ""
+        where, params = self.retailer_where("core_productmaster", required=False)
         if search:
-            where = "WHERE product_name LIKE %s OR product_company LIKE %s OR product_barcode LIKE %s"
+            where += " AND (product_name LIKE %s OR product_company LIKE %s OR product_barcode LIKE %s)"
             term = f"%{search}%"
-            params = [term, term, term]
+            params += [term, term, term]
         return self.query(
             f"""
             SELECT productid, product_name, product_company, product_packing,
                    product_category, product_hsn, product_hsn_percent, product_barcode, product_salt
             FROM core_productmaster
-            {where}
+            WHERE 1=1{where}
             ORDER BY product_name
             LIMIT 500
             """,
@@ -260,8 +261,8 @@ class Database:
                    COALESCE(MAX(t.mrp), 0) AS mrp,
                    COALESCE(MAX(t.rate), 0) AS purchase_rate,
                    CASE 
-                       WHEN STR_TO_DATE(CONCAT('01-', t.expiry_date), '%d-%m-%Y') < CURDATE() THEN 'expired'
-                       WHEN STR_TO_DATE(CONCAT('01-', t.expiry_date), '%d-%m-%Y') < DATE_ADD(CURDATE(), INTERVAL 3 MONTH) THEN 'expiring_soon'
+                       WHEN STR_TO_DATE(CONCAT('01-', t.expiry_date), '%%d-%%m-%%Y') < CURDATE() THEN 'expired'
+                       WHEN STR_TO_DATE(CONCAT('01-', t.expiry_date), '%%d-%%m-%%Y') < DATE_ADD(CURDATE(), INTERVAL 3 MONTH) THEN 'expiring_soon'
                        ELSE 'valid'
                    END AS expiry_status
             FROM inventory_transaction t
@@ -490,34 +491,51 @@ class Database:
 
     def fetch_suppliers(self, search: str = "") -> list[dict[str, Any]]:
         if not self.table_exists("core_suppliermaster"): return []
+        rid = self.config.retailer_id
+        has_rid = self.column_exists("core_suppliermaster", "retailer_id")
         params: list[Any] = []
-        where = "WHERE 1=1"
+        if has_rid:
+            params = [rid]
+            where = "WHERE s.retailer_id = %s"
+        else:
+            where = "WHERE 1=1"
         if search:
             where += " AND (supplier_name LIKE %s OR supplier_mobile LIKE %s)"
             term = f"%{search}%"
-            params = [term, term]
+            params += [term, term]
+        bal_filter = "AND i.retailer_id = %s" if self.column_exists("core_invoicemaster", "retailer_id") else ""
+        bal_params = [rid] if bal_filter else []
         rows = self.query(
             f"""
             SELECT s.supplierid, s.supplier_name, s.supplier_mobile, s.supplier_emailid,
                    s.supplier_address, s.supplier_gstno, s.supplier_dlno,
                    COALESCE((SELECT SUM(i.invoice_total - i.invoice_paid)
-                              FROM core_invoicemaster i WHERE i.supplierid_id = s.supplierid), 0) AS balance
+                              FROM core_invoicemaster i WHERE i.supplierid_id = s.supplierid
+                              {bal_filter}), 0) AS balance
             FROM core_suppliermaster s
             {where}
             ORDER BY s.supplier_name LIMIT 500
             """,
-            params,
+            bal_params + params,
         )
         return rows
 
     def fetch_customers(self, search: str = "") -> list[dict[str, Any]]:
         if not self.table_exists("core_customermaster"): return []
+        rid = self.config.retailer_id
+        has_rid = self.column_exists("core_customermaster", "retailer_id")
         params: list[Any] = []
-        where = "WHERE 1=1"
+        if has_rid:
+            params = [rid]
+            where = "WHERE c.retailer_id = %s"
+        else:
+            where = "WHERE 1=1"
         if search:
             where += " AND (customer_name LIKE %s OR customer_mobile LIKE %s OR customer_emailid LIKE %s)"
             term = f"%{search}%"
-            params = [term, term, term]
+            params += [term, term, term]
+        bal_filter = "AND si.retailer_id = %s" if self.column_exists("core_salesinvoicemaster", "retailer_id") else ""
+        bal_params = [rid] if bal_filter else []
         rows = self.query(
             f"""
             SELECT c.customerid, c.customer_name, c.customer_type, c.customer_mobile,
@@ -525,12 +543,12 @@ class Database:
                    c.customer_credit_days,
                    COALESCE((SELECT SUM(si.sales_invoice_paid)
                               FROM core_salesinvoicemaster si WHERE si.customerid_id = c.customerid
-                              AND si.retailer_id = %s), 0) AS paid_total
+                              {bal_filter}), 0) AS paid_total
             FROM core_customermaster c
             {where}
             ORDER BY c.customer_name LIMIT 500
             """,
-            [self.config.retailer_id] + params,
+            bal_params + params,
         )
         return rows
 
@@ -543,6 +561,257 @@ class Database:
             {"report": "Out of Stock", "value": dashboard["out_stock"], "remarks": "Filtered by retailer_id"},
         ]
 
+    def fetch_sales_for_report(self, from_date: str, to_date: str, retailer_id: int,
+                               product_ids: list = None) -> list:
+        """Sales data for ERP report request. Filters by retailer_id and optionally by product_ids."""
+        retailer_id = int(retailer_id)
+        logger.info(
+            "fetch_sales_for_report: retailer_id=%s from=%s to=%s product_ids=%s",
+            retailer_id, from_date, to_date,
+            product_ids if product_ids else 'ALL',
+        )
+        if not self.table_exists("core_salesmaster"):
+            return []
+        product_filter = ''
+        params = [retailer_id, from_date, to_date]
+        if product_ids:
+            placeholders = ','.join(['%s'] * len(product_ids))
+            product_filter = f' AND sm.productid_id IN ({placeholders})'
+            params = [retailer_id, from_date, to_date] + list(product_ids)
+        return self.query(
+            f"""
+            SELECT sm.sales_invoice_no_id AS invoice_no,
+                   si.sales_invoice_date  AS invoice_date,
+                   c.customer_name, c.customer_type,
+                   sm.product_name, sm.product_company, sm.product_packing,
+                   sm.product_batch_no AS batch_no, sm.product_expiry AS expiry,
+                   sm.product_MRP AS mrp, sm.sale_rate, sm.sale_quantity AS quantity,
+                   sm.sale_free_qty AS free_qty, sm.sale_discount AS discount,
+                   sm.sale_cgst AS cgst, sm.sale_sgst AS sgst,
+                   sm.sale_total_amount AS total_amount
+            FROM core_salesmaster sm
+            JOIN core_salesinvoicemaster si ON si.sales_invoice_no = sm.sales_invoice_no_id
+            JOIN core_customermaster c ON c.customerid = sm.customerid_id
+            WHERE sm.retailer_id = %s
+              AND si.sales_invoice_date >= %s
+              AND si.sales_invoice_date <= %s{product_filter}
+            ORDER BY si.sales_invoice_date, sm.sales_invoice_no_id
+            LIMIT 5000
+            """,
+            params,
+        )
+
+    def fetch_purchases_for_report(self, from_date: str, to_date: str, retailer_id: int,
+                                   product_ids: list = None) -> list:
+        """Purchase data for ERP report request. Filters by retailer_id and optionally by product_ids."""
+        retailer_id = int(retailer_id)
+        logger.info(
+            "fetch_purchases_for_report: retailer_id=%s from=%s to=%s product_ids=%s",
+            retailer_id, from_date, to_date,
+            product_ids if product_ids else 'ALL',
+        )
+        if not self.table_exists("core_purchasemaster"):
+            return []
+        product_filter = ''
+        params = [retailer_id, from_date, to_date]
+        if product_ids:
+            placeholders = ','.join(['%s'] * len(product_ids))
+            product_filter = f' AND pm.productid_id IN ({placeholders})'
+            params = [retailer_id, from_date, to_date] + list(product_ids)
+        return self.query(
+            f"""
+            SELECT pm.product_invoice_no AS invoice_no,
+                   i.invoice_date,
+                   s.supplier_name,
+                   pm.product_name, pm.product_company, pm.product_packing,
+                   pm.product_batch_no AS batch_no, pm.product_expiry AS expiry,
+                   pm.product_MRP AS mrp, pm.product_purchase_rate AS purchase_rate,
+                   pm.product_quantity AS quantity, pm.product_free_qty AS free_qty,
+                   pm.product_discount_got AS discount,
+                   pm.CGST AS cgst, pm.SGST AS sgst,
+                   pm.total_amount
+            FROM core_purchasemaster pm
+            JOIN core_invoicemaster i ON i.invoiceid = pm.product_invoiceid_id
+            JOIN core_suppliermaster s ON s.supplierid = pm.product_supplierid_id
+            WHERE pm.retailer_id = %s
+              AND i.invoice_date >= %s
+              AND i.invoice_date <= %s{product_filter}
+            ORDER BY i.invoice_date, pm.product_invoice_no
+            LIMIT 5000
+            """,
+            params,
+        )
+
+    def fetch_stock_for_report(self, retailer_id: int, product_ids: list = None,
+                               from_date: str = '', to_date: str = '') -> list:
+        """Batch-wise stock report. Filters by retailer_id, optionally by product_ids and date range."""
+        retailer_id = int(retailer_id)
+        logger.info("fetch_stock_for_report: retailer_id=%s product_ids=%s from=%s to=%s",
+                    retailer_id, product_ids if product_ids else 'ALL', from_date, to_date)
+        if not self.table_exists("inventory_transaction"):
+            return []
+
+        product_filter = ''
+        date_filter = ''
+        params = [retailer_id]
+        if product_ids:
+            placeholders = ','.join(['%s'] * len(product_ids))
+            product_filter = f' AND t.product_id IN ({placeholders})'
+            params = [retailer_id] + list(product_ids)
+        if from_date:
+            date_filter += ' AND DATE(t.transaction_date) >= %s'
+            params.append(from_date)
+        if to_date:
+            date_filter += ' AND DATE(t.transaction_date) <= %s'
+            params.append(to_date)
+
+        rows = self.query(
+            f"""
+            SELECT
+                p.productid,
+                p.product_name,
+                p.product_company,
+                p.product_packing,
+                p.product_hsn AS hsn,
+                t.batch_no,
+                t.expiry_date AS expiry,
+                COALESCE(MAX(t.mrp), 0) AS mrp,
+                COALESCE(MAX(t.rate), 0) AS purchase_rate,
+                COALESCE(SUM(CASE WHEN t.transaction_type = 'PURCHASE' THEN t.quantity ELSE 0 END), 0) AS bought_qty,
+                COALESCE(SUM(CASE WHEN t.transaction_type = 'PURCHASE' THEN t.free_quantity ELSE 0 END), 0) AS free_qty,
+                COALESCE(SUM(CASE
+                    WHEN t.transaction_type IN ('SALE','STOCK_ISSUE','REVERT_SALE') THEN t.quantity
+                    WHEN t.transaction_type IN ('SALES_RETURN','REVERT_SALES_RETURN') THEN -t.quantity
+                    ELSE 0 END), 0) AS sold_qty,
+                COALESCE(SUM(CASE
+                    WHEN t.transaction_type = 'PURCHASE' THEN t.quantity
+                    WHEN t.transaction_type IN ('PURCHASE_RETURN','REVERT_PURCHASE_RETURN','REVERT_PURCHASE') THEN -t.quantity
+                    WHEN t.transaction_type IN ('SALE','STOCK_ISSUE','REVERT_SALE') THEN -t.quantity
+                    WHEN t.transaction_type IN ('SALES_RETURN','REVERT_SALES_RETURN') THEN t.quantity
+                    ELSE 0 END), 0) AS available_qty,
+                MIN(CASE WHEN t.transaction_type = 'PURCHASE' THEN i.invoice_date ELSE NULL END) AS receive_date,
+                MAX(CASE WHEN t.transaction_type = 'PURCHASE' THEN i.invoice_date ELSE NULL END) AS ac_date
+            FROM inventory_transaction t
+            JOIN core_productmaster p ON p.productid = t.product_id
+            LEFT JOIN core_purchasemaster pm ON pm.productid_id = t.product_id
+                AND pm.product_batch_no = t.batch_no
+                AND pm.retailer_id = t.retailer_id
+            LEFT JOIN core_invoicemaster i ON i.invoiceid = pm.product_invoiceid_id
+            WHERE t.retailer_id = %s{product_filter}{date_filter}
+            GROUP BY p.productid, p.product_name, p.product_company,
+                     p.product_packing, p.product_hsn, t.batch_no, t.expiry_date
+            HAVING available_qty > 0
+            ORDER BY p.product_name, t.expiry_date
+            LIMIT 5000
+            """,
+            params,
+        )
+
+        # Get supplier name per batch from core_purchasemaster (filtered by date if provided)
+        supplier_map = {}
+        if self.table_exists("core_purchasemaster") and self.table_exists("core_suppliermaster"):
+            sup_params = [retailer_id]
+            sup_date_filter = ''
+            if from_date:
+                sup_date_filter += ' AND i.invoice_date >= %s'
+                sup_params.append(from_date)
+            if to_date:
+                sup_date_filter += ' AND i.invoice_date <= %s'
+                sup_params.append(to_date)
+            sup_rows = self.query(
+                f"""
+                SELECT pm.product_batch_no AS batch_no, pm.productid_id AS productid,
+                       s.supplier_name
+                FROM core_purchasemaster pm
+                JOIN core_suppliermaster s ON s.supplierid = pm.product_supplierid_id
+                JOIN core_invoicemaster i ON i.invoiceid = pm.product_invoiceid_id
+                WHERE pm.retailer_id = %s{sup_date_filter}
+                GROUP BY pm.productid_id, pm.product_batch_no, s.supplier_name
+                """,
+                sup_params
+            )
+            for sr in sup_rows:
+                supplier_map[(sr['productid'], sr['batch_no'])] = sr['supplier_name']
+
+        def _to_date_str(val) -> str:
+            """Convert datetime.date / datetime.datetime / str to DD-MM-YYYY, or '' if None."""
+            if val is None or val == '':
+                return ''
+            import datetime as _dt
+            if isinstance(val, (_dt.datetime, _dt.date)):
+                return val.strftime('%d-%m-%Y')
+            s = str(val).strip()
+            # YYYY-MM-DD → DD-MM-YYYY
+            if len(s) >= 10 and s[4:5] == '-' and s[7:8] == '-':
+                return s[8:10] + '-' + s[5:7] + '-' + s[:4]
+            # already DD-MM-YYYY
+            if len(s) == 10 and s[2:3] == '-' and s[5:6] == '-':
+                return s
+            # datetime string 'YYYY-MM-DD HH:MM:SS' — take date part only
+            if len(s) > 10 and s[4:5] == '-':
+                return _to_date_str(s[:10])
+            return s
+
+        for r in rows:
+            pid = r['productid']
+            # inventory_transaction already stores qty * packing — show as-is
+            r['bought']          = float(r.get('bought_qty', 0))
+            r['free_qty_raw']    = float(r.get('free_qty', 0))
+            r['sold']            = float(r.get('sold_qty', 0))
+            r['available_stock'] = float(r.get('available_qty', 0))
+            r['supplier_name']   = supplier_map.get((pid, r.get('batch_no', '')), '')
+            r['receive_date']    = _to_date_str(r.get('receive_date'))
+            r['ac_date']         = _to_date_str(r.get('ac_date'))
+        return rows
+
+    def fetch_returns_for_report(self, from_date: str, to_date: str, retailer_id: int,
+                                  product_ids: list = None) -> list:
+        """Sales return data for ERP report request. Filters by retailer_id and optionally by product_ids."""
+        retailer_id = int(retailer_id)
+        logger.info(
+            "fetch_returns_for_report: retailer_id=%s from=%s to=%s product_ids=%s",
+            retailer_id, from_date, to_date,
+            product_ids if product_ids else 'ALL',
+        )
+        if not self.table_exists("core_returnsalesmaster"):
+            return []
+        product_filter = ''
+        params = [retailer_id, from_date, to_date]
+        if product_ids:
+            placeholders = ','.join(['%s'] * len(product_ids))
+            product_filter = f' AND rsm.return_productid_id IN ({placeholders})'
+            params = [retailer_id, from_date, to_date] + list(product_ids)
+        return self.query(
+            f"""
+            SELECT rsi.return_sales_invoice_no AS invoice_no,
+                   rsi.return_sales_invoice_date AS invoice_date,
+                   c.customer_name,
+                   rsm.return_product_name AS product_name,
+                   rsm.return_product_company AS product_company,
+                   rsm.return_product_packing AS product_packing,
+                   rsm.return_product_batch_no AS batch_no,
+                   rsm.return_product_expiry AS expiry,
+                   rsm.return_product_MRP AS mrp,
+                   rsm.return_sale_rate AS sale_rate,
+                   rsm.return_sale_quantity AS quantity,
+                   rsm.return_sale_free_qty AS free_qty,
+                   rsm.return_sale_discount AS discount,
+                   rsm.return_sale_cgst AS cgst,
+                   rsm.return_sale_sgst AS sgst,
+                   rsm.return_sale_total_amount AS total_amount
+            FROM core_returnsalesmaster rsm
+            JOIN core_returnsalesinvoicemaster rsi
+                ON rsi.return_sales_invoice_no = rsm.return_sales_invoice_no_id
+            JOIN core_customermaster c ON c.customerid = rsm.return_customerid_id
+            WHERE rsm.retailer_id = %s
+              AND rsi.return_sales_invoice_date >= %s
+              AND rsi.return_sales_invoice_date <= %s{product_filter}
+            ORDER BY rsi.return_sales_invoice_date, rsi.return_sales_invoice_no
+            LIMIT 5000
+            """,
+            params,
+        )
+
     def fetch_requests(
         self,
         status: str = "",
@@ -552,12 +821,17 @@ class Database:
     ) -> list[dict[str, Any]]:
         if not self.table_exists("retailer_request"):
             return []
-        # Ensure from_date / to_date columns exist (added in later version)
+        # Ensure from_date / to_date / product_ids columns exist
         for col in ('from_date', 'to_date'):
             if not self.column_exists('retailer_request', col):
                 self.execute(
                     f"ALTER TABLE retailer_request ADD COLUMN {col} VARCHAR(20) DEFAULT ''"
                 )
+        if not self.column_exists('retailer_request', 'product_ids'):
+            self.execute(
+                "ALTER TABLE retailer_request ADD COLUMN product_ids TEXT NULL"
+            )
+            self._columns_cache.pop(('retailer_request', 'product_ids'), None)
         params: list[Any] = [self.config.retailer_id]
         where = "WHERE retailer_id = %s"
         if only_pending:
@@ -574,7 +848,8 @@ class Database:
         return self.query(
             f"""
             SELECT id, request_type, reference_id, status, created_at, processed_at, remarks,
-                   COALESCE(from_date, '') AS from_date, COALESCE(to_date, '') AS to_date
+                   COALESCE(from_date, '') AS from_date, COALESCE(to_date, '') AS to_date,
+                   COALESCE(product_ids, '') AS product_ids
             FROM retailer_request
             {where}
             ORDER BY created_at DESC, id DESC
@@ -591,6 +866,26 @@ class Database:
             WHERE id = %s AND retailer_id = %s
             """,
             (request_id, self.config.retailer_id),
+        )
+
+    def get_requests(self, retailer_id: int) -> list[dict[str, Any]]:
+        """
+        Get all requests for a retailer, used by SyncBridge.get_cached_requests().
+        Returns all requests ordered by created_at DESC.
+        """
+        if not self.table_exists("retailer_request"):
+            return []
+        return self.query(
+            """
+            SELECT id, request_type, reference_id, status, created_at, processed_at, remarks,
+                   COALESCE(from_date, '') AS from_date, COALESCE(to_date, '') AS to_date,
+                   COALESCE(product_ids, '') AS product_ids
+            FROM retailer_request
+            WHERE retailer_id = %s
+            ORDER BY created_at DESC, id DESC
+            LIMIT 500
+            """,
+            (retailer_id,),
         )
 
     def delete_wholesaler_request(self, reference_id: int, retailer_id: int) -> None:
@@ -612,11 +907,11 @@ class Database:
         if not requests:
             return 0
         from datetime import datetime
-        # Ensure from_date/to_date columns exist (added later)
-        for col, dtype in [('from_date', 'VARCHAR(20)'), ('to_date', 'VARCHAR(20)')]:
-            if not self.column_exists('retailer_request', col):
-                self.execute(f"ALTER TABLE retailer_request ADD COLUMN {col} {dtype} DEFAULT ''")
-                self._columns_cache.pop(('retailer_request', col), None)
+        # Ensure from_date/to_date/product_ids columns exist
+        for col, dtype in [('from_date', 'VARCHAR(20) DEFAULT ""'), ('to_date', 'VARCHAR(20) DEFAULT ""'), ('product_ids', 'TEXT NULL')]:
+            if not self.column_exists('retailer_request', col.split()[0]):
+                self.execute(f"ALTER TABLE retailer_request ADD COLUMN {col.split()[0]} {dtype}")
+                self._columns_cache.pop(('retailer_request', col.split()[0]), None)
         inserted = 0
         for r in requests:
             existing = self.query(
@@ -630,8 +925,8 @@ class Database:
                 """
                 INSERT INTO retailer_request
                     (request_type, reference_id, status, remarks,
-                     created_at, retailer_id, from_date, to_date)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                     created_at, retailer_id, from_date, to_date, product_ids)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
                 """,
                 (
                     r['request_type'],
@@ -642,6 +937,7 @@ class Database:
                     retailer_id,
                     r.get('from_date', ''),
                     r.get('to_date', ''),
+                    r.get('product_ids', '') or '',
                 ),
             )
             inserted += 1
@@ -687,18 +983,30 @@ class Database:
     # ── PURCHASE INVOICE CRUD ─────────────────────────────────────────────────
 
     def get_suppliers_list(self) -> list[dict[str, Any]]:
+        if self.column_exists("core_suppliermaster", "retailer_id"):
+            return self.query(
+                "SELECT supplierid, supplier_name FROM core_suppliermaster WHERE retailer_id=%s ORDER BY supplier_name LIMIT 500",
+                (self.config.retailer_id,)
+            )
         return self.query(
             "SELECT supplierid, supplier_name FROM core_suppliermaster ORDER BY supplier_name LIMIT 500"
         )
 
     def get_customers_list(self) -> list[dict[str, Any]]:
+        if self.column_exists("core_customermaster", "retailer_id"):
+            return self.query(
+                "SELECT customerid, customer_name, customer_type FROM core_customermaster WHERE retailer_id=%s ORDER BY customer_name LIMIT 500",
+                (self.config.retailer_id,)
+            )
         return self.query(
             "SELECT customerid, customer_name, customer_type FROM core_customermaster ORDER BY customer_name LIMIT 500"
         )
 
     def get_products_list(self) -> list[dict[str, Any]]:
+        where, params = self.retailer_where("core_productmaster", required=False)
         return self.query(
-            "SELECT productid, product_name, product_company, product_packing, product_hsn_percent FROM core_productmaster ORDER BY product_name LIMIT 2000"
+            f"SELECT productid, product_name, product_company, product_packing, product_hsn_percent FROM core_productmaster WHERE 1=1{where} ORDER BY product_name LIMIT 2000",
+            params
         )
 
     def get_invoice(self, invoice_id: int) -> dict[str, Any] | None:
@@ -1010,45 +1318,67 @@ class Database:
         return total
 
     def add_invoice_payment(self, invoice_id: int, date: str, amount: float, mode: str, ref: str) -> None:
+        rid = self.config.retailer_id
+        has_rid = self.column_exists('core_invoicepaid', 'retailer_id')
+        if has_rid:
+            self.execute(
+                "INSERT INTO core_invoicepaid (retailer_id, ip_invoiceid_id, payment_date, payment_amount, payment_mode, payment_ref_no) VALUES (%s,%s,%s,%s,%s,%s)",
+                (rid, invoice_id, date, amount, mode, ref)
+            )
+        else:
+            self.execute(
+                "INSERT INTO core_invoicepaid (ip_invoiceid_id, payment_date, payment_amount, payment_mode, payment_ref_no) VALUES (%s,%s,%s,%s,%s)",
+                (invoice_id, date, amount, mode, ref)
+            )
         self.execute(
-            "INSERT INTO core_invoicepaid (ip_invoiceid_id, payment_date, payment_amount, payment_mode, payment_ref_no) VALUES (%s,%s,%s,%s,%s)",
-            (invoice_id, date, amount, mode, ref)
-        )
-        self.execute(
-            "UPDATE core_invoicemaster SET invoice_paid=invoice_paid+%s WHERE invoiceid=%s",
-            (amount, invoice_id)
+            "UPDATE core_invoicemaster SET invoice_paid=invoice_paid+%s WHERE invoiceid=%s AND retailer_id=%s",
+            (amount, invoice_id, rid)
         )
         self._update_invoice_payment_status(invoice_id)
 
     def _update_invoice_payment_status(self, invoice_id: int) -> None:
         rows = self.query(
-            "SELECT invoice_total, invoice_paid FROM core_invoicemaster WHERE invoiceid=%s",
-            (invoice_id,))
+            "SELECT invoice_total, invoice_paid FROM core_invoicemaster WHERE invoiceid=%s AND retailer_id=%s",
+            (invoice_id, self.config.retailer_id))
         if rows:
             total = float(rows[0]["invoice_total"])
             paid = float(rows[0]["invoice_paid"])
             balance = total - paid
             status = "paid" if balance <= 0.01 else ("partial" if paid > 0 else "pending")
-            self.execute("UPDATE core_invoicemaster SET payment_status=%s WHERE invoiceid=%s",
-                         (status, invoice_id))
+            self.execute("UPDATE core_invoicemaster SET payment_status=%s WHERE invoiceid=%s AND retailer_id=%s",
+                         (status, invoice_id, self.config.retailer_id))
 
     def get_invoice_payments(self, invoice_id: int) -> list[dict[str, Any]]:
+        rid = self.config.retailer_id
+        has_rid = self.column_exists('core_invoicepaid', 'retailer_id')
+        if has_rid:
+            return self.query(
+                "SELECT * FROM core_invoicepaid WHERE ip_invoiceid_id=%s AND retailer_id=%s ORDER BY payment_date DESC",
+                (invoice_id, rid)
+            )
         return self.query(
             "SELECT * FROM core_invoicepaid WHERE ip_invoiceid_id=%s ORDER BY payment_date DESC",
             (invoice_id,)
         )
 
     def delete_invoice_payment(self, payment_id: int) -> None:
-        rows = self.query(
-            "SELECT ip_invoiceid_id, payment_amount FROM core_invoicepaid WHERE payment_id=%s",
-            (payment_id,))
+        rid = self.config.retailer_id
+        has_rid = self.column_exists('core_invoicepaid', 'retailer_id')
+        if has_rid:
+            rows = self.query(
+                "SELECT ip_invoiceid_id, payment_amount FROM core_invoicepaid WHERE payment_id=%s AND retailer_id=%s",
+                (payment_id, rid))
+        else:
+            rows = self.query(
+                "SELECT ip_invoiceid_id, payment_amount FROM core_invoicepaid WHERE payment_id=%s",
+                (payment_id,))
         if rows:
             self.execute("DELETE FROM core_invoicepaid WHERE payment_id=%s", (payment_id,))
             inv_id = rows[0]["ip_invoiceid_id"]
             amt = float(rows[0]["payment_amount"])
             self.execute(
-                "UPDATE core_invoicemaster SET invoice_paid=GREATEST(0, invoice_paid-%s) WHERE invoiceid=%s",
-                (amt, inv_id))
+                "UPDATE core_invoicemaster SET invoice_paid=GREATEST(0, invoice_paid-%s) WHERE invoiceid=%s AND retailer_id=%s",
+                (amt, inv_id, rid))
             self._update_invoice_payment_status(inv_id)
 
     # ── SALES INVOICE CRUD ────────────────────────────────────────────────────
@@ -1227,32 +1557,54 @@ class Database:
         self.execute("DELETE FROM core_salesmaster WHERE id=%s", (sale_id,))
 
     def add_sales_payment(self, invoice_no: str, date: str, amount: float, mode: str, ref: str) -> None:
+        rid = self.config.retailer_id
+        has_rid = self.column_exists('core_salesinvoicepaid', 'retailer_id')
+        if has_rid:
+            self.execute(
+                "INSERT INTO core_salesinvoicepaid (retailer_id, sales_ip_invoice_no_id, sales_payment_date, sales_payment_amount, sales_payment_mode, sales_payment_ref_no) VALUES (%s,%s,%s,%s,%s,%s)",
+                (rid, invoice_no, date, amount, mode, ref)
+            )
+        else:
+            self.execute(
+                "INSERT INTO core_salesinvoicepaid (sales_ip_invoice_no_id, sales_payment_date, sales_payment_amount, sales_payment_mode, sales_payment_ref_no) VALUES (%s,%s,%s,%s,%s)",
+                (invoice_no, date, amount, mode, ref)
+            )
         self.execute(
-            "INSERT INTO core_salesinvoicepaid (sales_ip_invoice_no_id, sales_payment_date, sales_payment_amount, sales_payment_mode, sales_payment_ref_no) VALUES (%s,%s,%s,%s,%s)",
-            (invoice_no, date, amount, mode, ref)
-        )
-        self.execute(
-            "UPDATE core_salesinvoicemaster SET sales_invoice_paid=sales_invoice_paid+%s WHERE sales_invoice_no=%s",
-            (amount, invoice_no)
+            "UPDATE core_salesinvoicemaster SET sales_invoice_paid=sales_invoice_paid+%s WHERE sales_invoice_no=%s AND retailer_id=%s",
+            (amount, invoice_no, rid)
         )
 
     def get_sales_payments(self, invoice_no: str) -> list[dict[str, Any]]:
+        rid = self.config.retailer_id
+        has_rid = self.column_exists('core_salesinvoicepaid', 'retailer_id')
+        if has_rid:
+            return self.query(
+                "SELECT * FROM core_salesinvoicepaid WHERE sales_ip_invoice_no_id=%s AND retailer_id=%s ORDER BY sales_payment_date DESC",
+                (invoice_no, rid)
+            )
         return self.query(
             "SELECT * FROM core_salesinvoicepaid WHERE sales_ip_invoice_no_id=%s ORDER BY sales_payment_date DESC",
             (invoice_no,)
         )
 
     def delete_sales_payment(self, payment_id: int) -> None:
-        rows = self.query(
-            "SELECT sales_ip_invoice_no_id, sales_payment_amount FROM core_salesinvoicepaid WHERE sales_payment_id=%s",
-            (payment_id,))
+        rid = self.config.retailer_id
+        has_rid = self.column_exists('core_salesinvoicepaid', 'retailer_id')
+        if has_rid:
+            rows = self.query(
+                "SELECT sales_ip_invoice_no_id, sales_payment_amount FROM core_salesinvoicepaid WHERE sales_payment_id=%s AND retailer_id=%s",
+                (payment_id, rid))
+        else:
+            rows = self.query(
+                "SELECT sales_ip_invoice_no_id, sales_payment_amount FROM core_salesinvoicepaid WHERE sales_payment_id=%s",
+                (payment_id,))
         if rows:
             self.execute("DELETE FROM core_salesinvoicepaid WHERE sales_payment_id=%s", (payment_id,))
             inv_no = rows[0]["sales_ip_invoice_no_id"]
             amt = float(rows[0]["sales_payment_amount"])
             self.execute(
-                "UPDATE core_salesinvoicemaster SET sales_invoice_paid=GREATEST(0, sales_invoice_paid-%s) WHERE sales_invoice_no=%s",
-                (amt, inv_no))
+                "UPDATE core_salesinvoicemaster SET sales_invoice_paid=GREATEST(0, sales_invoice_paid-%s) WHERE sales_invoice_no=%s AND retailer_id=%s",
+                (amt, inv_no, rid))
 
     def get_batch_stock(self, product_id: int, batch_no: str) -> float:
         """Return current total_stock for a batch from inventory_transaction."""
@@ -1821,10 +2173,16 @@ class Database:
     # ── SUPPLIER / CUSTOMER FULL DETAIL ──────────────────────────────────────
 
     def get_supplier_full(self, supplier_id: int) -> dict[str, Any] | None:
-        rows = self.query("SELECT * FROM core_suppliermaster WHERE supplierid=%s", (supplier_id,))
+        if self.column_exists("core_suppliermaster", "retailer_id"):
+            rows = self.query("SELECT * FROM core_suppliermaster WHERE supplierid=%s AND retailer_id=%s",
+                              (supplier_id, self.config.retailer_id))
+        else:
+            rows = self.query("SELECT * FROM core_suppliermaster WHERE supplierid=%s", (supplier_id,))
         return rows[0] if rows else None
 
     def create_supplier(self, data: dict) -> int:
+        if self.column_exists("core_suppliermaster", "retailer_id"):
+            data['retailer_id'] = self.config.retailer_id
         cols = ", ".join(data.keys())
         phs = ", ".join(["%s"] * len(data))
         with self.cursor() as cur:
@@ -1834,17 +2192,31 @@ class Database:
 
     def update_supplier(self, supplier_id: int, data: dict) -> None:
         sets = ", ".join(f"{k}=%s" for k in data)
-        self.execute(f"UPDATE core_suppliermaster SET {sets} WHERE supplierid=%s",
-                     list(data.values()) + [supplier_id])
+        if self.column_exists("core_suppliermaster", "retailer_id"):
+            self.execute(f"UPDATE core_suppliermaster SET {sets} WHERE supplierid=%s AND retailer_id=%s",
+                         list(data.values()) + [supplier_id, self.config.retailer_id])
+        else:
+            self.execute(f"UPDATE core_suppliermaster SET {sets} WHERE supplierid=%s",
+                         list(data.values()) + [supplier_id])
 
     def delete_supplier(self, supplier_id: int) -> None:
-        self.execute("DELETE FROM core_suppliermaster WHERE supplierid=%s", (supplier_id,))
+        if self.column_exists("core_suppliermaster", "retailer_id"):
+            self.execute("DELETE FROM core_suppliermaster WHERE supplierid=%s AND retailer_id=%s",
+                         (supplier_id, self.config.retailer_id))
+        else:
+            self.execute("DELETE FROM core_suppliermaster WHERE supplierid=%s", (supplier_id,))
 
     def get_customer_full(self, customer_id: int) -> dict[str, Any] | None:
-        rows = self.query("SELECT * FROM core_customermaster WHERE customerid=%s", (customer_id,))
+        if self.column_exists("core_customermaster", "retailer_id"):
+            rows = self.query("SELECT * FROM core_customermaster WHERE customerid=%s AND retailer_id=%s",
+                              (customer_id, self.config.retailer_id))
+        else:
+            rows = self.query("SELECT * FROM core_customermaster WHERE customerid=%s", (customer_id,))
         return rows[0] if rows else None
 
     def create_customer(self, data: dict) -> int:
+        if self.column_exists("core_customermaster", "retailer_id"):
+            data['retailer_id'] = self.config.retailer_id
         cols = ", ".join(data.keys())
         phs = ", ".join(["%s"] * len(data))
         with self.cursor() as cur:
@@ -1854,17 +2226,32 @@ class Database:
 
     def update_customer(self, customer_id: int, data: dict) -> None:
         sets = ", ".join(f"{k}=%s" for k in data)
-        self.execute(f"UPDATE core_customermaster SET {sets} WHERE customerid=%s",
-                     list(data.values()) + [customer_id])
+        if self.column_exists("core_customermaster", "retailer_id"):
+            self.execute(f"UPDATE core_customermaster SET {sets} WHERE customerid=%s AND retailer_id=%s",
+                         list(data.values()) + [customer_id, self.config.retailer_id])
+        else:
+            self.execute(f"UPDATE core_customermaster SET {sets} WHERE customerid=%s",
+                         list(data.values()) + [customer_id])
 
     def delete_customer(self, customer_id: int) -> None:
-        self.execute("DELETE FROM core_customermaster WHERE customerid=%s", (customer_id,))
+        if self.column_exists("core_customermaster", "retailer_id"):
+            self.execute("DELETE FROM core_customermaster WHERE customerid=%s AND retailer_id=%s",
+                         (customer_id, self.config.retailer_id))
+        else:
+            self.execute("DELETE FROM core_customermaster WHERE customerid=%s", (customer_id,))
 
     def get_product_full(self, product_id: int) -> dict[str, Any] | None:
-        rows = self.query("SELECT * FROM core_productmaster WHERE productid=%s", (product_id,))
+        where, params = self.retailer_where("core_productmaster", required=False)
+        params.insert(0, product_id)
+        rows = self.query(f"SELECT * FROM core_productmaster WHERE productid=%s{where}", params)
         return rows[0] if rows else None
 
     def create_product(self, data: dict) -> int:
+        # Add retailer_id to product data
+        data['retailer_id'] = self.config.retailer_id
+        # Convert empty barcode to None — MySQL unique constraint allows multiple NULLs but not multiple ''
+        if 'product_barcode' in data and not data['product_barcode']:
+            data['product_barcode'] = None
         cols = ", ".join(data.keys())
         phs = ", ".join(["%s"] * len(data))
         with self.cursor() as cur:
@@ -1874,8 +2261,9 @@ class Database:
 
     def update_product(self, product_id: int, data: dict) -> None:
         sets = ", ".join(f"{k}=%s" for k in data)
-        self.execute(f"UPDATE core_productmaster SET {sets} WHERE productid=%s",
-                     list(data.values()) + [product_id])
+        where, where_params = self.retailer_where("core_productmaster", required=False)
+        params = list(data.values()) + [product_id] + where_params
+        self.execute(f"UPDATE core_productmaster SET {sets} WHERE productid=%s{where}", params)
 
     def delete_product(self, product_id: int) -> None:
         # Delete related inventory transactions
@@ -1885,8 +2273,10 @@ class Database:
                 (product_id, self.config.retailer_id)
             )
         
-        # Delete product
-        self.execute("DELETE FROM core_productmaster WHERE productid=%s", (product_id,))
+        # Delete product (with retailer_id check)
+        where, params = self.retailer_where("core_productmaster", required=False)
+        params.insert(0, product_id)
+        self.execute(f"DELETE FROM core_productmaster WHERE productid=%s{where}", params)
 
     def fetch_backups(self) -> list[dict[str, Any]]:
         self.execute(

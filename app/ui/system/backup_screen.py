@@ -42,7 +42,7 @@ class BackupScreen(tk.Frame):
         
         tk.Label(body, text="Database Backup Control Panel", font=("Segoe UI", 12, "bold"),
                  fg=TXT, bg=CARD).pack(anchor="w", pady=(0, 6))
-        tk.Label(body, text="Create a physical SQL backup of your entire pharmacy ERP database. Backups are stored in the local 'backups' folder and registered in the database backup log table.",
+        tk.Label(body, text="Create a SQL backup containing ONLY your store's data (filtered by your retailer ID). Backups are saved to: Documents\\MedicVista Backups\\ on this computer.",
                  font=("Segoe UI", 9), fg=MUT, bg=CARD, wraplength=700, justify="left").pack(anchor="w", pady=(0, 14))
         
         btn_bar = tk.Frame(body, bg=CARD)
@@ -151,7 +151,8 @@ class BackupScreen(tk.Frame):
 
     def _open_backups_folder(self):
         """Open the backups directory in OS file explorer."""
-        backup_dir = os.path.abspath("backups")
+        import pathlib
+        backup_dir = str(pathlib.Path.home() / "Documents" / "MedicVista Backups")
         if not os.path.exists(backup_dir):
             os.makedirs(backup_dir)
         try:

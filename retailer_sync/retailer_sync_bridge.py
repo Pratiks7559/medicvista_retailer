@@ -1,0 +1,290 @@
+"""
+retailer_sync_bridge.py
+-----------------------
+Thread-safe bridge between RetailerSyncRunner (background thread)
+and the Tkinter application (main thread).
+
+Responsibilities
+----------------
+- Owns the background sync thread.
+- After every sync cycle: writes new requests into retailer MySQL.
+- Provides push_status_update() and force_sync_now() for button handlers.
+- All Tkinter widget updates scheduled via root.after() — never from thread.
+
+Status vocabulary alignment
+----------------------------
+Wholesaler API sends:  PENDING / PROCESSING / COMPLETED / FAILED  (uppercase)
+Retailer MySQL stores: Pending / Processing / Completed / Failed   (capitalised)
+Retailer screen tags:  Pending / Processing / Processed / Failed
+
+This bridge converts wholesaler uppercase → capitalised before writing MySQL.
+"COMPLETED" → "Processed"  to match your existing screen tag and
+mark_request_processed() which sets status = 'Processed'.
+"""
+
+import threading
+import logging
+from retailer_sync_runner import RetailerSyncRunner
+
+logger = logging.getLogger('retailer_sync')
+
+# Wholesaler uppercase → retailer MySQL capitalised
+_STATUS_MAP = {
+    'PENDING':    'Pending',
+    'PROCESSING': 'Processing',
+    'COMPLETED':  'Processed',   # matches your existing screen tag + mark_request_processed
+    'FAILED':     'Failed',
+}
+
+
+class SyncBridge:
+    def __init__(self, tk_root, config: dict, app_db=None):
+        """
+        Parameters
+        ----------
+        tk_root : tk.Tk
+        config  : dict from _load_config()
+        app_db  : optional existing DB class instance. If None, requests are
+                  cached in-memory only (standalone panel mode).
+        """
+        self._root   = tk_root
+        self._config = config
+        self._app_db = app_db
+        self._lock   = threading.Lock()
+        self._cached_requests = []   # in-memory cache for standalone mode
+        self.on_update        = None
+        self.on_generate_done = None
+
+        self._runner = RetailerSyncRunner(
+            config=config,
+            on_sync_complete=self._thread_callback,
+            app_db=app_db,  # Pass MySQL DB to runner for cleanup
+        )
+        self._thread = None
+
+    # ------------------------------------------------------------------
+    # Lifecycle
+    # ------------------------------------------------------------------
+
+    def start(self):
+        if self._thread and self._thread.is_alive():
+            return
+        self._thread = threading.Thread(
+            target=self._runner.run_forever,
+            name='RetailerSyncThread',
+            daemon=True,
+        )
+        self._thread.start()
+        logger.info("SyncBridge started — polling every %ds",
+                    self._config.get('sync_interval_seconds', 60))
+
+    def stop(self):
+        self._runner.stop()
+        if self._thread:
+            self._thread.join(timeout=3)
+        logger.info("SyncBridge stopped.")
+
+    # ------------------------------------------------------------------
+    # Button handlers — called from main thread
+    # ------------------------------------------------------------------
+
+    def force_sync_now(self):
+        """Sync Now button — triggers immediate cycle, non-blocking."""
+        self._runner.force_wake()
+        threading.Thread(
+            target=self._runner.run_once,
+            daemon=True,
+            name='SyncForceThread',
+        ).start()
+
+    def push_status_update(self, reference_id: int, wholesaler_status: str):
+        """
+        Mark Processed button.
+        Sends status to wholesaler API and updates retailer MySQL.
+        Runs in short thread so UI stays responsive.
+
+        reference_id    : the wholesaler request_id stored in your reference_id column
+        wholesaler_status: 'COMPLETED' / 'FAILED' / 'PROCESSING'  (uppercase)
+        """
+        retailer_id   = self._config['retailer_id']
+        mysql_status  = _STATUS_MAP.get(wholesaler_status.upper(), wholesaler_status.capitalize())
+
+        def _do():
+            # Send to wholesaler
+            self._runner._send_status(reference_id, wholesaler_status.upper())
+            # Update retailer MySQL if app_db available
+            if self._app_db and hasattr(self._app_db, 'update_request_status_by_reference'):
+                try:
+                    self._app_db.update_request_status_by_reference(
+                        reference_id, mysql_status, retailer_id
+                    )
+                    logger.info("MySQL updated: ref=%s -> %s", reference_id, mysql_status)
+                except Exception:
+                    logger.exception("MySQL update failed: ref=%s", reference_id)
+            else:
+                # Standalone mode — update in-memory cache
+                with self._lock:
+                    for r in self._cached_requests:
+                        if r['request_id'] == reference_id:
+                            r['status'] = mysql_status
+                            break
+            # Refresh UI on main thread
+            if self.on_update:
+                self._root.after(0, lambda: self.on_update({}))
+
+        threading.Thread(target=_do, daemon=True, name='SyncPushThread').start()
+
+    def generate_report(self, reference_id: int, output_dir: str = 'retailer_reports'):
+        """
+        Generate Report button.
+        Fetches data from wholesaler, generates PDF + Excel, updates MySQL.
+        Runs in thread. Returns immediately — result delivered via on_generate_done.
+
+        Caller must set on_generate_done before calling.
+        Signature: on_generate_done(reference_id, result_dict)
+        """
+        retailer_id = self._config['retailer_id']
+
+        def _do():
+            # Full pipeline — fetch data → generate files → update wholesaler status
+            result = self._runner.fetch_and_generate(
+                wholesaler_request_id=reference_id,
+                output_dir=output_dir,
+            )
+            # Update retailer MySQL based on outcome
+            mysql_status = 'Processed' if result['ok'] else 'Failed'
+            try:
+                self._app_db.update_request_status_by_reference(
+                    reference_id, mysql_status, retailer_id
+                )
+            except Exception:
+                logger.exception("MySQL status update failed after generate: ref=%s", reference_id)
+
+            # Deliver result to main thread
+            if self.on_generate_done:
+                self._root.after(0, lambda: self.on_generate_done(reference_id, result))
+            if self.on_update:
+                self._root.after(0, lambda: self.on_update({}))
+
+        threading.Thread(target=_do, daemon=True, name='GenerateReportThread').start()
+
+    # ------------------------------------------------------------------
+    # Internal — background thread → main thread
+    # ------------------------------------------------------------------
+
+    def get_cached_requests(self) -> list:
+        """Return the latest list of requests for table display."""
+        if self._app_db and hasattr(self._app_db, 'get_requests'):
+            try:
+                return self._app_db.get_requests(self._config['retailer_id'])
+            except Exception:
+                logger.exception("app_db.get_requests failed, falling back to cache")
+        with self._lock:
+            return list(self._cached_requests)
+
+    def _thread_callback(self, result: dict):
+        """
+        Called from background thread after every sync cycle.
+        Writes new requests into retailer MySQL (if app_db provided),
+        otherwise caches in-memory. NEVER touch Tkinter here.
+        """
+        new_requests = result.get('new_requests', [])
+        if new_requests:
+            logger.info(
+                "Processing %d new request(s) | app_db=%s | has_upsert=%s",
+                len(new_requests),
+                'present' if self._app_db else 'None',
+                hasattr(self._app_db, 'upsert_wholesaler_requests') if self._app_db else False,
+            )
+
+            if self._app_db and hasattr(self._app_db, 'upsert_wholesaler_requests'):
+                retailer_id = self._config['retailer_id']
+                try:
+                    count = self._app_db.upsert_wholesaler_requests(
+                        new_requests, retailer_id
+                    )
+                    logger.info("Wrote %d new request(s) into retailer MySQL.", count)
+                except Exception:
+                    logger.exception("Failed writing requests to retailer MySQL.")
+            else:
+                logger.warning(
+                    "Running in STANDALONE mode (no app_db) — requests not persisted to MySQL."
+                )
+                with self._lock:
+                    existing_ids = {r['request_id'] for r in self._cached_requests}
+                    for r in new_requests:
+                        if r['request_id'] not in existing_ids:
+                            r.setdefault('status', 'PENDING')
+                            r.setdefault('sync_time', result.get('last_sync_time', ''))
+                            self._cached_requests.append(r)
+                    logger.info("Cached %d new request(s) in memory.", len(new_requests))
+
+            # Auto-generate runs regardless of app_db — runner handles its own DB access
+            self._auto_generate_reports(new_requests)
+
+        with self._lock:
+            self._last_result = result
+
+        if self.on_update:
+            self._root.after(0, lambda: self.on_update(result))
+
+    def _auto_generate_reports(self, new_requests: list):
+        """
+        Automatically generate and upload CSV for new PENDING requests.
+        Runs in background thread, does not block UI.
+        """
+        import threading
+
+        # Filter to only PENDING requests for THIS retailer before spawning thread
+        my_retailer_id = int(self._config['retailer_id'])
+        pending = []
+        for req in new_requests:
+            rid = req.get('request_id')
+            if not rid:
+                continue
+            req_retailer = req.get('retailer_id')
+            if req_retailer is not None and int(req_retailer) != my_retailer_id:
+                logger.error(
+                    "AUTO-GENERATE BLOCKED: request_id=%s belongs to retailer_id=%s "
+                    "but this instance is retailer_id=%s. IGNORING.",
+                    rid, req_retailer, my_retailer_id,
+                )
+                continue
+            status = req.get('status', 'PENDING').upper()
+            if status not in ('PENDING', ''):
+                logger.debug("Skipping auto-generate for request_id=%s (status=%s)", rid, status)
+                continue
+            pending.append(req)
+
+        if not pending:
+            return
+
+        logger.info("AUTO-GENERATE: %d PENDING request(s) to process for retailer_id=%s",
+                    len(pending), my_retailer_id)
+
+        def _generate_all():
+            for req in pending:
+                request_id = req.get('request_id')
+                try:
+                    logger.info(
+                        "[AUTO-GENERATE] START request_id=%s type=%s retailer=%s",
+                        request_id, req.get('request_type'), my_retailer_id,
+                    )
+                    result = self._runner.fetch_and_generate(
+                        wholesaler_request_id=request_id,
+                        output_dir='retailer_reports',
+                    )
+                    if result['ok']:
+                        logger.info(
+                            "[AUTO-GENERATE] SUCCESS request_id=%s csv=%s",
+                            request_id, result.get('csv_path'),
+                        )
+                    else:
+                        logger.error(
+                            "[AUTO-GENERATE] FAILED request_id=%s error=%s",
+                            request_id, result.get('error'),
+                        )
+                except Exception:
+                    logger.exception("[AUTO-GENERATE] EXCEPTION request_id=%s", request_id)
+
+        threading.Thread(target=_generate_all, daemon=True, name='AutoGenerateThread').start()

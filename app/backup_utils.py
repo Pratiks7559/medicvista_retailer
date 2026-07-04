@@ -1,198 +1,204 @@
-import os
-import subprocess
 import datetime
+import threading
 from pathlib import Path
 from tkinter import messagebox
-import threading
 
 
-_MYSQLDUMP_CANDIDATES = [
-    r"C:\Program Files\MySQL\MySQL Server 8.4\bin\mysqldump.exe",
-    r"C:\Program Files\MySQL\MySQL Server 8.0\bin\mysqldump.exe",
-    r"C:\Program Files\MySQL\MySQL Server 5.7\bin\mysqldump.exe",
-    r"C:\Program Files (x86)\MySQL\MySQL Server 8.0\bin\mysqldump.exe",
-    r"C:\Program Files (x86)\MySQL\MySQL Server 5.7\bin\mysqldump.exe",
-    r"C:\xampp\mysql\bin\mysqldump.exe",
-    r"D:\xampp\mysql\bin\mysqldump.exe",
-    r"C:\wamp64\bin\mysql\mysql8.0.36\bin\mysqldump.exe",
-    r"C:\wamp64\bin\mysql\mysql8.0.31\bin\mysqldump.exe",
-    r"C:\wamp\bin\mysql\mysql8.0.31\bin\mysqldump.exe",
+# Tables that have a direct retailer_id column — exported with WHERE retailer_id = %s
+_RETAILER_ID_TABLES = [
+    "core_productmaster",
+    "core_suppliermaster",
+    "core_customermaster",
+    "core_invoicemaster",
+    "core_purchasemaster",
+    "core_salesinvoicemaster",
+    "core_salesmaster",
+    "core_returninvoicemaster",
+    "core_returnpurchasemaster",
+    "core_returnsalesinvoicemaster",
+    "core_returnsalesmaster",
+    "inventory_transaction",
+    "retailer_request",
+    "challan1",
+    "customer_challan",
+    "stock_issue_master",
+    "stock_issue_detail",
+    "core_backup",
+]
+
+# Tables linked to core_invoicemaster via invoice FK — exported by joining to retailer invoices
+_INVOICE_PAYMENT_TABLES = [
+    ("core_invoicepaid",        "ip_invoiceid_id",       "core_invoicemaster", "invoiceid"),
+    ("core_salesinvoicepaid",   "sales_ip_invoice_no_id","core_salesinvoicemaster", "sales_invoice_no"),
+    ("core_returnsalesinvoicepaid", "return_sales_ip_invoice_no_id", "core_returnsalesinvoicemaster", "return_sales_invoice_no"),
+]
+
+# Tables with no retailer_id that are shared/structural — exported in full
+_SHARED_TABLES = [
+    "core_invoiceseries",
+    "retailer_users",
 ]
 
 
-def _find_mysqldump() -> str:
-    """Return path to mysqldump: check PATH first, then known install locations."""
-    # 1. Already on PATH?
+def _escape(val) -> str:
+    """Escape a Python value to a safe SQL literal."""
+    if val is None:
+        return "NULL"
+    if isinstance(val, (int, float)):
+        return str(val)
+    if isinstance(val, datetime.datetime):
+        return f"'{val.strftime('%Y-%m-%d %H:%M:%S')}'"
+    if isinstance(val, datetime.date):
+        return f"'{val.strftime('%Y-%m-%d')}'"
+    # String — escape backslash, single-quote, and NUL
+    s = str(val).replace("\\", "\\\\").replace("'", "\\'").replace("\x00", "")
+    return f"'{s}'"
+
+
+def _write_table(f, conn, table: str, where_clause: str, params: tuple):
+    """
+    Fetch rows from `table` using `where_clause` and write INSERT statements to `f`.
+    Skips silently if the table does not exist.
+    """
     try:
-        result = subprocess.run(["mysqldump", "--version"],
-                                capture_output=True, timeout=5)
-        if result.returncode == 0:
-            return "mysqldump"
-    except (FileNotFoundError, subprocess.TimeoutExpired):
-        pass
+        with conn.cursor() as cur:
+            # Check table exists
+            cur.execute("SHOW TABLES LIKE %s", (table,))
+            if not cur.fetchone():
+                return
 
-    # 2. Known fixed locations
-    for candidate in _MYSQLDUMP_CANDIDATES:
-        if Path(candidate).exists():
-            return candidate
+            # Fetch column names
+            cur.execute(f"SHOW COLUMNS FROM `{table}`")
+            columns = [row[0] for row in cur.fetchall()]
+            if not columns:
+                return
 
-    # 3. Scan WAMP for any installed MySQL version dynamically
-    for wamp_root in [r"C:\wamp64\bin\mysql", r"C:\wamp\bin\mysql"]:
-        wamp_path = Path(wamp_root)
-        if wamp_path.exists():
-            for version_dir in sorted(wamp_path.iterdir(), reverse=True):
-                candidate = version_dir / "bin" / "mysqldump.exe"
-                if candidate.exists():
-                    return str(candidate)
+            col_list = ", ".join(f"`{c}`" for c in columns)
+            sql = f"SELECT {col_list} FROM `{table}`"
+            if where_clause:
+                sql += f" WHERE {where_clause}"
 
-    # 4. Scan standard MySQL program files for any version dynamically
-    for mysql_root in [r"C:\Program Files\MySQL", r"C:\Program Files (x86)\MySQL"]:
-        mysql_path = Path(mysql_root)
-        if mysql_path.exists():
-            for version_dir in sorted(mysql_path.iterdir(), reverse=True):
-                candidate = version_dir / "bin" / "mysqldump.exe"
-                if candidate.exists():
-                    return str(candidate)
+            cur.execute(sql, params)
+            rows = cur.fetchall()
 
-    return None
+        if not rows:
+            return
+
+        f.write(f"\n-- Table: {table}\n")
+        f.write(f"LOCK TABLES `{table}` WRITE;\n")
+
+        for row in rows:
+            values = ", ".join(_escape(v) for v in row)
+            f.write(f"INSERT INTO `{table}` ({col_list}) VALUES ({values});\n")
+
+        f.write(f"UNLOCK TABLES;\n")
+
+    except Exception as e:
+        f.write(f"-- WARNING: could not export {table}: {e}\n")
 
 
 def create_database_backup(app, parent_widget=None, on_complete=None):
     """
-    Creates a MySQL database dump using mysqldump and saves it locally.
+    Creates a retailer-filtered SQL backup using PyMySQL.
+    Only rows belonging to the logged-in retailer_id are exported.
+    Saved to: Documents\MedicVista Backups\
     """
-    # Create backups directory
-    backup_dir = Path("backups")
-    backup_dir.mkdir(exist_ok=True)
-    
-    # Generate filename
+    import os
+    documents = Path.home() / "Documents" / "MedicVista Backups"
+    documents.mkdir(parents=True, exist_ok=True)
+    backup_dir = documents
+
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    retailer_id = app.config_data.retailer_id
     db_name = app.config_data.db_name
-    filename = f"backup_{db_name}_{timestamp}.sql"
+    filename = f"backup_{db_name}_retailer{retailer_id}_{timestamp}.sql"
     filepath = backup_dir / filename
-    
-    # Locate mysqldump executable
-    mysqldump_exe = _find_mysqldump()
 
-    # Pre-flight check — fail fast with a helpful message
-    if not mysqldump_exe:
-        messagebox.showerror(
-            "mysqldump Not Found",
-            "The 'mysqldump' tool was not found on this system.\n\n"
-            "Fix options:\n"
-            "1. Install MySQL: https://dev.mysql.com/downloads/installer/\n"
-            "2. Add MySQL bin folder to Windows PATH\n"
-            "3. XAMPP users: add C:\\xampp\\mysql\\bin to PATH\n"
-            "4. WAMP users: add C:\\wamp64\\bin\\mysql\\<version>\\bin to PATH\n\n"
-            "After installing, restart this application.",
-            parent=parent_widget
-        )
-        if on_complete:
-            on_complete()
-        return
-
-    # Build mysqldump command
-    cmd = [
-        mysqldump_exe,
-        f"--host={app.config_data.db_host}",
-        f"--port={app.config_data.db_port}",
-        f"--user={app.config_data.db_user}",
-    ]
-    
-    # Avoid passing password on command line if possible, but for simplicity on Windows desktop:
-    if app.config_data.db_password:
-        cmd.append(f"--password={app.config_data.db_password}")
-        
-    cmd.append(db_name)
-    
     def run_backup():
         try:
+            import pymysql
+            conn = pymysql.connect(
+                host=app.config_data.db_host,
+                port=app.config_data.db_port,
+                user=app.config_data.db_user,
+                password=app.config_data.db_password,
+                database=db_name,
+                charset="utf8mb4",
+                cursorclass=pymysql.cursors.Cursor,
+                connect_timeout=10,
+            )
+
             with open(filepath, "w", encoding="utf-8") as f:
-                result = subprocess.run(cmd, stdout=f, stderr=subprocess.PIPE, text=True)
-            
-            if result.returncode == 0:
-                # Calculate size
-                try:
-                    size_bytes = filepath.stat().st_size
-                    size_str = f"{size_bytes / 1024:.1f} KB" if size_bytes < 1024 * 1024 else f"{size_bytes / (1024 * 1024):.2f} MB"
-                except Exception:
-                    size_str = "Unknown"
-                
-                try:
-                    app.db.log_backup(filename, str(filepath.absolute()), "Success", size_str)
-                except Exception as ex:
-                    print(f"Failed to log backup to DB: {ex}")
+                f.write(f"-- MedicVista Retailer Backup\n")
+                f.write(f"-- Database  : {db_name}\n")
+                f.write(f"-- Retailer  : {retailer_id}\n")
+                f.write(f"-- Generated : {datetime.datetime.now()}\n")
+                f.write(f"-- NOTE: Contains ONLY data for retailer_id = {retailer_id}\n\n")
+                f.write("SET FOREIGN_KEY_CHECKS=0;\n")
+                f.write("SET SQL_MODE='NO_AUTO_VALUE_ON_ZERO';\n")
+                f.write("SET NAMES utf8mb4;\n\n")
 
-                # Need to update UI from main thread
-                app.after(0, lambda: messagebox.showinfo(
-                    "Backup Successful", 
-                    f"Database backup created successfully!\n\nFile saved to: {filepath.absolute()}", 
-                    parent=parent_widget
-                ))
-                if on_complete:
-                    app.after(0, on_complete)
-            else:
-                err_msg = result.stderr
-                # Check if mysqldump is not recognized
-                if "not recognized" in err_msg or "not found" in err_msg.lower():
-                    err_msg = "The 'mysqldump' tool is not installed or not in PATH.\nPlease install MySQL Command Line Tools to use this feature."
-                
-                try:
-                    app.db.log_backup(filename, str(filepath.absolute()), "Failed", "0 KB")
-                except Exception as ex:
-                    print(f"Failed to log failed backup to DB: {ex}")
+                # 1. Tables with direct retailer_id column
+                for table in _RETAILER_ID_TABLES:
+                    _write_table(f, conn, table, "retailer_id = %s", (retailer_id,))
 
-                app.after(0, lambda: messagebox.showerror(
-                    "Backup Failed", 
-                    f"Failed to create backup.\n\nError: {err_msg}", 
-                    parent=parent_widget
-                ))
-                # Delete empty file if failed
-                if filepath.exists():
-                    filepath.unlink()
-                if on_complete:
-                    app.after(0, on_complete)
-                    
-        except FileNotFoundError:
+                # 2. Payment/child tables linked via FK to a parent that has retailer_id
+                for child_table, fk_col, parent_table, parent_pk in _INVOICE_PAYMENT_TABLES:
+                    where = (
+                        f"`{fk_col}` IN "
+                        f"(SELECT `{parent_pk}` FROM `{parent_table}` WHERE retailer_id = %s)"
+                    )
+                    _write_table(f, conn, child_table, where, (retailer_id,))
+
+                # 3. Shared/structural tables — full export
+                for table in _SHARED_TABLES:
+                    _write_table(f, conn, table, "", ())
+
+                f.write("\nSET FOREIGN_KEY_CHECKS=1;\n")
+
+            conn.close()
+
             try:
-                app.db.log_backup(filename, str(filepath.absolute()), "Failed", "0 KB")
+                size_bytes = filepath.stat().st_size
+                size_str = (
+                    f"{size_bytes / 1024:.1f} KB"
+                    if size_bytes < 1024 * 1024
+                    else f"{size_bytes / (1024 * 1024):.2f} MB"
+                )
             except Exception:
-                pass
-            app.after(0, lambda: messagebox.showerror(
-                "Backup Failed",
-                "The 'mysqldump' tool was not found.\n\n"
-                "Checked locations:\n"
-                "  - System PATH\n"
-                "  - C:\\Program Files\\MySQL\\...\\bin\\\n"
-                "  - C:\\xampp\\mysql\\bin\\\n"
-                "  - C:\\wamp64\\bin\\mysql\\...\\bin\\\n\n"
-                "Fix options:\n"
-                "1. Install MySQL: https://dev.mysql.com/downloads/installer/\n"
-                "2. Add MySQL bin folder to Windows PATH environment variable\n"
-                "3. For XAMPP: add C:\\xampp\\mysql\\bin to PATH\n"
-                "4. For WAMP: add C:\\wamp64\\bin\\mysql\\<version>\\bin to PATH",
-                parent=parent_widget
+                size_str = "Unknown"
+
+            try:
+                app.db.log_backup(filename, str(filepath.absolute()), "Success", size_str)
+            except Exception as ex:
+                print(f"Failed to log backup to DB: {ex}")
+
+            app.after(0, lambda: messagebox.showinfo(
+                "Backup Successful",
+                f"Retailer backup created successfully!\n\n"
+                f"Retailer ID : {retailer_id}\n"
+                f"File        : {filepath.absolute()}\n"
+                f"Size        : {size_str}",
+                parent=parent_widget,
             ))
-            if filepath.exists():
-                filepath.unlink()
             if on_complete:
                 app.after(0, on_complete)
+
         except Exception as e:
             try:
                 app.db.log_backup(filename, str(filepath.absolute()), "Failed", "0 KB")
             except Exception:
                 pass
-            app.after(0, lambda: messagebox.showerror(
-                "Backup Failed", 
-                f"An error occurred during backup:\n{str(e)}", 
-                parent=parent_widget
-            ))
             if filepath.exists():
                 filepath.unlink()
+            app.after(0, lambda: messagebox.showerror(
+                "Backup Failed",
+                f"An error occurred during backup:\n{e}",
+                parent=parent_widget,
+            ))
             if on_complete:
                 app.after(0, on_complete)
 
-    # Run in background to prevent freezing UI
     thread = threading.Thread(target=run_backup)
     thread.daemon = True
     thread.start()

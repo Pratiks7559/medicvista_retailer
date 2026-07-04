@@ -236,14 +236,14 @@ class ReportsScreen(tk.Frame):
             messagebox.showerror("Error", f"Failed to load data: {e}", parent=self)
 
     def _load_purchase_data(self, frm, to):
-        # Query purchase invoices with filters
+        rid = self.app.db.config.retailer_id
         query = """SELECT i.invoice_no, i.invoice_date, s.supplier_name,
                           i.invoice_total, i.invoice_paid,
                           (i.invoice_total - i.invoice_paid) as balance
                    FROM core_invoicemaster i
                    JOIN core_suppliermaster s ON s.supplierid = i.supplierid_id
-                   WHERE 1=1"""
-        params = []
+                   WHERE i.retailer_id=%s"""
+        params = [rid]
         if frm:
             query += " AND i.invoice_date >= %s"
             params.append(frm)
@@ -285,14 +285,15 @@ class ReportsScreen(tk.Frame):
         ), tags=("total_row",))
 
     def _load_sales_data(self, frm, to):
+        rid = self.app.db.config.retailer_id
         query = """SELECT si.sales_invoice_no, si.sales_invoice_date, c.customer_name,
                           COALESCE(SUM(sm.sale_total_amount), 0) as total,
                           si.sales_invoice_paid as paid
                    FROM core_salesinvoicemaster si
                    JOIN core_customermaster c ON c.customerid = si.customerid_id
                    LEFT JOIN core_salesmaster sm ON sm.sales_invoice_no_id = si.sales_invoice_no
-                   WHERE 1=1"""
-        params = []
+                   WHERE si.retailer_id=%s"""
+        params = [rid]
         if frm:
             query += " AND si.sales_invoice_date >= %s"
             params.append(frm)
@@ -336,6 +337,7 @@ class ReportsScreen(tk.Frame):
         ), tags=("total_row",))
 
     def _load_customer_wise_data(self, frm, to):
+        rid = self.app.db.config.retailer_id
         query = """SELECT c.customer_name,
                           COUNT(DISTINCT si.sales_invoice_no) as invoices,
                           COALESCE(SUM(sm.sale_total_amount), 0) as total,
@@ -343,8 +345,8 @@ class ReportsScreen(tk.Frame):
                    FROM core_customermaster c
                    LEFT JOIN core_salesinvoicemaster si ON si.customerid_id = c.customerid
                    LEFT JOIN core_salesmaster sm ON sm.sales_invoice_no_id = si.sales_invoice_no
-                   WHERE 1=1"""
-        params = []
+                   WHERE c.retailer_id=%s"""
+        params = [rid]
         if frm:
             query += " AND si.sales_invoice_date >= %s"
             params.append(frm)

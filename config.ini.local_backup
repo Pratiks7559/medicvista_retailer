@@ -1,0 +1,49 @@
+# ============================================================
+# MedicVista Retailer - LOCAL Configuration
+# ============================================================
+# Retailer App Database: medicvista_retailer (Local)
+# Django ERP Database: pharma_db (Local - localhost:8000)
+# ============================================================
+
+[database]
+# Retailer app's own database
+host = localhost
+port = 3306
+name = medicvista_retailer
+user = root
+password = Pratik@123
+
+[erp_database]
+# Django ERP database for retailer_request sync
+host = localhost
+port = 3306
+name = pharma_db
+user = root
+password = Pratik@123
+
+[retailer1]
+retailer_id = 1
+store_name = BSL Pharmacy
+retailer_code = RTL001
+
+[retailer2]
+retailer_id = 2
+store_name = MedPlus Retail
+retailer_code = RTL002
+
+[retailer3]
+retailer_id = 3
+store_name = Apollo Pharmacy
+retailer_code = RTL003
+
+[retailer4]
+retailer_id = 4
+store_name = Wellness Forever
+retailer_code = RTL004
+
+[sync]
+poll_seconds = 10
+
+[mode]
+environment = LOCAL
+description = Local with pharma_db for retailer requests

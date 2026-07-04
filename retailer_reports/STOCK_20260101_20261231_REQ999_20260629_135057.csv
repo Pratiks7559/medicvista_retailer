@@ -1,0 +1,7 @@
+﻿STOCK Report - 2026-01-01 to 2026-12-31
+Generated: 29-06-2026 13:50:57
+
+Product,Company,Packing,HSN,Batch,Expiry,MRP,Purchase Rate,Stock,Free Stock,Total Stock,Rate A,Rate B,Rate C,Status
+Test,ABC,10x10,1234,B001,12-2027,100,80,50,5,55,90,85,80,valid
+
+Total Records: 1,"Total Amount: ₹4,000.00"

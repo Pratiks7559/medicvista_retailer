@@ -225,10 +225,10 @@ class RetailerRequestsScreen(tk.Frame):
         import json, os, sys
         cfg_paths = [
             os.path.join(os.path.dirname(__file__),
-                         "..", "..", "..", "..", "retailer_sync",
+                         "..", "..", "..", "retailer_sync",
                          "retailer_sync_config.json"),
             os.path.join(os.path.dirname(__file__),
-                         "..", "..", "..", "retailer_sync_config.json"),
+                         "..", "..", "retailer_sync_config.json"),
         ]
         cfg_file = next((p for p in cfg_paths if os.path.exists(p)), None)
         if cfg_file:
@@ -259,7 +259,6 @@ class RetailerRequestsScreen(tk.Frame):
                 from retailer_sync_runner import RetailerSyncRunner
                 self._runner = RetailerSyncRunner(
                     config=config,
-                    mysql_db=self.app.db,
                     on_sync_complete=self._on_sync_result,
                 )
                 # Set _tk_root for safe root.after() delivery

@@ -178,18 +178,19 @@ class TransactionHistoryScreen(tk.Frame):
             
             query += """) as total_stock
                 FROM core_productmaster p
+                WHERE p.retailer_id = %s
             """
             
             rid = self.app.config_data.retailer_id
             
             # Build params based on mode
             if current_mode == "fy" and fy_start and fy_end:
-                base_params = (rid, fy_start, fy_end, rid, fy_start, fy_end)
+                base_params = (rid, fy_start, fy_end, rid, fy_start, fy_end, rid)
             else:
-                base_params = (rid, rid)
+                base_params = (rid, rid, rid)
             
             if search:
-                query += " WHERE LOWER(p.product_name) LIKE %s OR LOWER(p.product_company) LIKE %s"
+                query += " AND (LOWER(p.product_name) LIKE %s OR LOWER(p.product_company) LIKE %s)"
                 self._products = self.app.db.query(
                     query + " ORDER BY txn_count DESC, p.product_name LIMIT 500",
                     base_params + (f"%{search}%", f"%{search}%")

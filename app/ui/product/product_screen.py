@@ -103,7 +103,8 @@ class ProductScreen(tk.Frame):
     def _open_edit(self, item_id):
         try:
             rows = self.app.db.query(
-                "SELECT * FROM core_productmaster WHERE productid=%s", (item_id,))
+                "SELECT * FROM core_productmaster WHERE productid=%s AND retailer_id=%s",
+                (item_id, self.app.db.config.retailer_id))
             if rows:
                 ProductForm(self, self.app, data=rows[0], on_save=self.on_show)
         except Exception as e:
@@ -115,7 +116,8 @@ class ProductScreen(tk.Frame):
         if messagebox.askyesno("Confirm Delete", f"Delete product '{name}'?"):
             try:
                 self.app.db.execute(
-                    "DELETE FROM core_productmaster WHERE productid=%s", (item_id,))
+                    "DELETE FROM core_productmaster WHERE productid=%s AND retailer_id=%s",
+                    (item_id, self.app.db.config.retailer_id))
                 self.on_show()
                 messagebox.showinfo("Success", f"Product '{name}' deleted.")
             except Exception as e:
@@ -257,15 +259,19 @@ class ProductForm(tk.Toplevel):
         if not vals["product_name"] or not vals["product_company"] or not vals["product_packing"]:
             messagebox.showwarning("Validation", "Name, Company and Packing are required.", parent=self)
             return
+        # Convert empty barcode to None so MySQL unique constraint allows multiple NULL values
+        if "product_barcode" in vals and not vals["product_barcode"]:
+            vals["product_barcode"] = None
         try:
             if self.data:
                 sets = ", ".join(f"{k}=%s" for k in vals)
                 self.app.db.execute(
-                    f"UPDATE core_productmaster SET {sets} WHERE productid=%s",
-                    list(vals.values()) + [self.data["productid"]]
+                    f"UPDATE core_productmaster SET {sets} WHERE productid=%s AND retailer_id=%s",
+                    list(vals.values()) + [self.data["productid"], self.app.db.config.retailer_id]
                 )
                 messagebox.showinfo("Success", "Product updated.", parent=self)
             else:
+                vals["retailer_id"] = self.app.db.config.retailer_id
                 cols = ", ".join(vals.keys())
                 phs = ", ".join(["%s"] * len(vals))
                 self.app.db.execute(

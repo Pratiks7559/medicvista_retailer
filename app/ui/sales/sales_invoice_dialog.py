@@ -118,8 +118,8 @@ class SalesInvoiceDialog(tk.Toplevel):
             fetch_fn=lambda t: self.db.query(
                 "SELECT customerid, customer_name, customer_mobile, customer_type, "
                 "customer_credit_days FROM core_customermaster "
-                "WHERE customer_name LIKE %s ORDER BY customer_name LIMIT 20",
-                (f"%{t}%",)),
+                "WHERE customer_name LIKE %s AND retailer_id=%s ORDER BY customer_name LIMIT 20",
+                (f"%{t}%", self.db.config.retailer_id)),
             display_key="customer_name", on_select=self._on_cust_select, width=30, bg=L["card"])
         self._cust_widget.grid(row=1, column=1, columnspan=3, sticky="ew", padx=(0,12), pady=4)
 
@@ -182,8 +182,9 @@ class SalesInvoiceDialog(tk.Toplevel):
             fetch_fn=lambda t: self.db.query(
                 "SELECT productid, product_name, product_company, product_packing, "
                 "product_hsn_percent FROM core_productmaster "
-                "WHERE product_name LIKE %s OR product_company LIKE %s "
-                "ORDER BY product_name LIMIT 20", (f"%{t}%", f"%{t}%")),
+                "WHERE (product_name LIKE %s OR product_company LIKE %s) "
+                "AND retailer_id=%s ORDER BY product_name LIMIT 20",
+                (f"%{t}%", f"%{t}%", self.db.config.retailer_id)),
             display_key="product_name", on_select=self._on_prod_select, width=28, bg=L["card"])
         self._prod_widget.grid(row=0, column=1, columnspan=5, sticky="ew", padx=(0,10), pady=3)
         frm.grid_columnconfigure(1, weight=1)

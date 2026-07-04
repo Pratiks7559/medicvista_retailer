@@ -113,7 +113,8 @@ class SalesReturnDialog(tk.Toplevel):
             fetch_fn=lambda t: self.db.query(
                 "SELECT customerid, customer_name, customer_mobile, customer_gstno "
                 "FROM core_customermaster WHERE customer_name LIKE %s "
-                "ORDER BY customer_name LIMIT 20", (f"%{t}%",)),
+                "AND retailer_id=%s ORDER BY customer_name LIMIT 20",
+                (f"%{t}%", self.db.config.retailer_id)),
             display_key="customer_name",
             on_select=self._on_cust_select,
             width=28)
@@ -145,8 +146,9 @@ class SalesReturnDialog(tk.Toplevel):
             fetch_fn=lambda t: self.db.query(
                 "SELECT productid, product_name, product_company, product_packing, "
                 "product_hsn_percent FROM core_productmaster "
-                "WHERE product_name LIKE %s OR product_company LIKE %s "
-                "ORDER BY product_name LIMIT 20", (f"%{t}%", f"%{t}%")),
+                "WHERE (product_name LIKE %s OR product_company LIKE %s) "
+                "AND retailer_id=%s ORDER BY product_name LIMIT 20",
+                (f"%{t}%", f"%{t}%", self.db.config.retailer_id)),
             display_key="product_name",
             on_select=self._on_prod_select,
             width=30)

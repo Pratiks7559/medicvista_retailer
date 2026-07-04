@@ -243,8 +243,13 @@ class CustomerScreen(tk.Frame):
 
     def _open_edit(self, item_id):
         try:
-            rows = self.app.db.query(
-                "SELECT * FROM core_customermaster WHERE customerid=%s", (item_id,))
+            if self.app.db.column_exists("core_customermaster", "retailer_id"):
+                rows = self.app.db.query(
+                    "SELECT * FROM core_customermaster WHERE customerid=%s AND retailer_id=%s",
+                    (item_id, self.app.db.config.retailer_id))
+            else:
+                rows = self.app.db.query(
+                    "SELECT * FROM core_customermaster WHERE customerid=%s", (item_id,))
             if rows:
                 CustomerForm(self, self.app, data=rows[0], on_save=self.on_show)
         except Exception as e:
@@ -256,8 +261,13 @@ class CustomerScreen(tk.Frame):
         if messagebox.askyesno("Confirm Delete",
                                 f"Delete customer '{name}'?\nThis will fail if they have invoices."):
             try:
-                self.app.db.execute(
-                    "DELETE FROM core_customermaster WHERE customerid=%s", (item_id,))
+                if self.app.db.column_exists("core_customermaster", "retailer_id"):
+                    self.app.db.execute(
+                        "DELETE FROM core_customermaster WHERE customerid=%s AND retailer_id=%s",
+                        (item_id, self.app.db.config.retailer_id))
+                else:
+                    self.app.db.execute(
+                        "DELETE FROM core_customermaster WHERE customerid=%s", (item_id,))
                 self.on_show()
                 messagebox.showinfo("Deleted", f"Customer '{name}' deleted.")
             except Exception as e:
@@ -468,12 +478,20 @@ class CustomerForm(tk.Toplevel):
         try:
             if self.data:
                 sets = ", ".join(f"{k}=%s" for k in vals)
-                self.app.db.execute(
-                    f"UPDATE core_customermaster SET {sets} WHERE customerid=%s",
-                    list(vals.values()) + [self.data["customerid"]]
-                )
+                if self.app.db.column_exists("core_customermaster", "retailer_id"):
+                    self.app.db.execute(
+                        f"UPDATE core_customermaster SET {sets} WHERE customerid=%s AND retailer_id=%s",
+                        list(vals.values()) + [self.data["customerid"], self.app.db.config.retailer_id]
+                    )
+                else:
+                    self.app.db.execute(
+                        f"UPDATE core_customermaster SET {sets} WHERE customerid=%s",
+                        list(vals.values()) + [self.data["customerid"]]
+                    )
                 messagebox.showinfo("Updated", "Customer updated successfully.", parent=self)
             else:
+                if self.app.db.column_exists("core_customermaster", "retailer_id"):
+                    vals["retailer_id"] = self.app.db.config.retailer_id
                 cols = ", ".join(vals.keys())
                 phs  = ", ".join(["%s"] * len(vals))
                 self.app.db.execute(

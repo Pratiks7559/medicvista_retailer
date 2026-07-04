@@ -8,6 +8,7 @@ from pathlib import Path
 
 APP_DIR = Path(__file__).resolve().parents[1]
 CONFIG_PATH = APP_DIR / "config.ini"
+CONFIG_DEPLOY_PATH = APP_DIR / "config_deploy.ini"
 EXAMPLE_CONFIG_PATH = APP_DIR / "config.example.ini"
 LOG_DIR = APP_DIR / "logs"
 
@@ -21,7 +22,9 @@ class AppConfig:
     db_password: str
     retailer_id: int
     store_name: str
+    retailer_code: str
     poll_seconds: int
+    environment: str
     config_path: Path = CONFIG_PATH
 
     @property
@@ -43,10 +46,12 @@ def load_config(path: Path = CONFIG_PATH) -> AppConfig:
     parser = configparser.ConfigParser()
     if path.exists():
         parser.read(path)
-
+    
+    # Default values - will be overridden by login
     db_port = int(_get(parser, "database", "port", "3306") or "3306")
-    retailer_id = int(_get(parser, "retailer", "retailer_id", "0") or "0")
+    retailer_id = 1  # Default, will be set by login
     poll_seconds = int(_get(parser, "sync", "poll_seconds", "10") or "10")
+    environment = _get(parser, "mode", "environment", "LOCAL")
 
     return AppConfig(
         db_host=_get(parser, "database", "host"),
@@ -55,7 +60,9 @@ def load_config(path: Path = CONFIG_PATH) -> AppConfig:
         db_user=_get(parser, "database", "user"),
         db_password=_get(parser, "database", "password"),
         retailer_id=retailer_id,
-        store_name=_get(parser, "retailer", "store_name", f"Retailer {retailer_id or ''}").strip(),
+        store_name="Default Store",
+        retailer_code="RTL001",
         poll_seconds=max(5, poll_seconds),
+        environment=environment,
         config_path=path,
     )

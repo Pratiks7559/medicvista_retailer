@@ -34,7 +34,7 @@ from .ui.system.backup_screen import BackupScreen
 # Retailer sync bridge (wholesaler API integration)
 try:
     import sys, os
-    sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', '..', 'retailer_sync'))
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'retailer_sync'))
     from retailer_sync_bridge import SyncBridge
     from retailer_sync_runner import _load_config as _load_sync_config
     _SYNC_AVAILABLE = True
@@ -75,10 +75,10 @@ class RetailerDesktopApp(tb.Window):
     # Retailer ID → (store_name, api_key, retailer_code) mapping
     # Must match wholesaler ERP RetailerMaster exactly
     _RETAILER_MAP = {
-        1: ("BSL Pharmacy",      "RTL001_TEST_KEY", "RTL001"),
-        2: ("MedPlus Retail",    "RTL002_TEST_KEY", "RTL002"),
-        3: ("Apollo Pharmacy",   "RTL003_TEST_KEY", "RTL003"),
-        4: ("Wellness Forever",  "RTL004_TEST_KEY", "RTL004"),
+        1: ("BSL Pharmacy",      "qAbkplyh1aezY0FAUkYv0rVMIshlIl9CVsR35eqzwGo", "RTL001"),
+        2: ("MedPlus Retail",    "xYz9mN3pLq2wRt8vB5nK7cF1dG4hJ6sA0eU2iO9lP3", "RTL002"),
+        3: ("Apollo Pharmacy",   "aB1cD2eF3gH4iJ5kL6mN7oP8qR9sT0uV1wX2yZ3aC4", "RTL003"),
+        4: ("Wellness Forever",  "bC2dE3fG4hI5jK6lM7nO8pQ9rS0tU1vW2xY3zA4bC5", "RTL004"),
     }
 
     def _on_login_success(self, username: str, password: str, retailer_id: int, full_name: str):
@@ -129,27 +129,27 @@ class RetailerDesktopApp(tb.Window):
         self.sync_bridge = None
         if _SYNC_AVAILABLE:
             try:
-                import os
-                _cfg_path = os.path.join(
-                    os.path.dirname(__file__), '..', '..', '..', 'retailer_sync',
-                    'retailer_sync_config.json'
-                )
-                _sync_cfg = _load_sync_config(_cfg_path)
-                # ✅ CRITICAL FIX: Override api_key, retailer_id, retailer_code
-                # with the currently logged-in retailer's values.
-                # Without this, every retailer would send RTL001's key and
-                # BSL Pharmacy would always show Online in the wholesaler ERP.
-                _sync_cfg = dict(_sync_cfg)
-                _sync_cfg['api_key']       = api_key
-                _sync_cfg['retailer_id']   = retailer_id
-                _sync_cfg['retailer_code'] = retailer_code
+                from retailer_sync_runner import get_retailer_config
+                
+                # Load base config (contains all 4 retailers)
+                _base_sync_cfg = _load_sync_config()
+                
+                # Extract config for THIS logged-in retailer only
+                _sync_cfg = get_retailer_config(_base_sync_cfg, retailer_id)
+                
                 # Safety guard: never start sync with placeholder/neutral values
-                if not api_key or api_key == 'WILL_BE_SET_ON_LOGIN' or retailer_id == 0:
+                if not _sync_cfg.get('api_key') or _sync_cfg['api_key'] == 'WILL_BE_SET_ON_LOGIN' or _sync_cfg.get('retailer_id', 0) == 0:
                     raise ValueError(f"Invalid sync config for retailer_id={retailer_id}")
-                self.sync_bridge = SyncBridge(self, _sync_cfg, mysql_db=self.db)
+                
+                self.sync_bridge = SyncBridge(self, _sync_cfg, app_db=self.db)
                 self.sync_bridge.on_update = self._on_wholesaler_sync
                 if hasattr(self.sync_bridge, '_runner') and self.sync_bridge._runner:
                     self.sync_bridge._runner._tk_root = self
+                
+                import logging
+                logging.getLogger(__name__).info(
+                    f"SyncBridge created for {store_name} (ID={retailer_id}, Code={retailer_code})"
+                )
             except Exception as _e:
                 import logging
                 logging.getLogger(__name__).warning("SyncBridge init failed: %s", _e)

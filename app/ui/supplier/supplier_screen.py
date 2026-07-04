@@ -236,8 +236,13 @@ class SupplierScreen(tk.Frame):
 
     def _open_edit(self, item_id):
         try:
-            rows = self.app.db.query(
-                "SELECT * FROM core_suppliermaster WHERE supplierid=%s", (item_id,))
+            if self.app.db.column_exists("core_suppliermaster", "retailer_id"):
+                rows = self.app.db.query(
+                    "SELECT * FROM core_suppliermaster WHERE supplierid=%s AND retailer_id=%s",
+                    (item_id, self.app.db.config.retailer_id))
+            else:
+                rows = self.app.db.query(
+                    "SELECT * FROM core_suppliermaster WHERE supplierid=%s", (item_id,))
             if rows:
                 SupplierForm(self, self.app, data=rows[0], on_save=self.on_show)
         except Exception as e:
@@ -249,8 +254,13 @@ class SupplierScreen(tk.Frame):
         if messagebox.askyesno("Confirm Delete",
                                 f"Delete supplier '{name}'?\nThis will fail if they have invoices."):
             try:
-                self.app.db.execute(
-                    "DELETE FROM core_suppliermaster WHERE supplierid=%s", (item_id,))
+                if self.app.db.column_exists("core_suppliermaster", "retailer_id"):
+                    self.app.db.execute(
+                        "DELETE FROM core_suppliermaster WHERE supplierid=%s AND retailer_id=%s",
+                        (item_id, self.app.db.config.retailer_id))
+                else:
+                    self.app.db.execute(
+                        "DELETE FROM core_suppliermaster WHERE supplierid=%s", (item_id,))
                 self.on_show()
                 messagebox.showinfo("Deleted", f"Supplier '{name}' deleted.")
             except Exception as e:
@@ -453,12 +463,20 @@ class SupplierForm(tk.Toplevel):
         try:
             if self.data:
                 sets = ", ".join(f"{k}=%s" for k in vals)
-                self.app.db.execute(
-                    f"UPDATE core_suppliermaster SET {sets} WHERE supplierid=%s",
-                    list(vals.values()) + [self.data["supplierid"]]
-                )
+                if self.app.db.column_exists("core_suppliermaster", "retailer_id"):
+                    self.app.db.execute(
+                        f"UPDATE core_suppliermaster SET {sets} WHERE supplierid=%s AND retailer_id=%s",
+                        list(vals.values()) + [self.data["supplierid"], self.app.db.config.retailer_id]
+                    )
+                else:
+                    self.app.db.execute(
+                        f"UPDATE core_suppliermaster SET {sets} WHERE supplierid=%s",
+                        list(vals.values()) + [self.data["supplierid"]]
+                    )
                 messagebox.showinfo("Updated", "Supplier updated successfully.", parent=self)
             else:
+                if self.app.db.column_exists("core_suppliermaster", "retailer_id"):
+                    vals["retailer_id"] = self.app.db.config.retailer_id
                 cols = ", ".join(vals.keys())
                 phs  = ", ".join(["%s"] * len(vals))
                 self.app.db.execute(

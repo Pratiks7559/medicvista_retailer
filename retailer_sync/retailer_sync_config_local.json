@@ -1,0 +1,45 @@
+{
+    "_comment": "============================================================",
+    "_comment2": "MedicVista Retailer Sync - LOCAL (All Retailers)",
+    "_comment3": "============================================================",
+    "_comment4": "Server: http://127.0.0.1:8000",
+    "_comment5": "Database: medicvista_retailer (common local database)",
+    "_comment6": "All 4 retailers run simultaneously",
+    "_comment7": "Each logged-in retailer gets its own sync instance",
+    "_comment8": "============================================================",
+
+    "retailers": {
+        "retailer1": {
+            "retailer_id": 1,
+            "retailer_name": "BSL Pharmacy",
+            "retailer_code": "RTL001",
+            "api_key": "qAbkplyh1aezY0FAUkYv0rVMIshlIl9CVsR35eqzwGo"
+        },
+        "retailer2": {
+            "retailer_id": 2,
+            "retailer_name": "MedPlus Retail",
+            "retailer_code": "RTL002",
+            "api_key": "xYz9mN3pLq2wRt8vB5nK7cF1dG4hJ6sA0eU2iO9lP3"
+        },
+        "retailer3": {
+            "retailer_id": 3,
+            "retailer_name": "Apollo Pharmacy",
+            "retailer_code": "RTL003",
+            "api_key": "aB1cD2eF3gH4iJ5kL6mN7oP8qR9sT0uV1wX2yZ3aC4"
+        },
+        "retailer4": {
+            "retailer_id": 4,
+            "retailer_name": "Wellness Forever",
+            "retailer_code": "RTL004",
+            "api_key": "bC2dE3fG4hI5jK6lM7nO8pQ9rS0tU1vW2xY3zA4bC5"
+        }
+    },
+
+    "server_mode": "LOCAL",
+    "server_url": "http://127.0.0.1:8000",
+    "sync_interval_seconds": 10,
+    "request_timeout_seconds": 10,
+    "max_retry_attempts": 3,
+    "log_file": "retailer_sync.log",
+    "cache_db_file": "retailer_request_cache.db"
+}

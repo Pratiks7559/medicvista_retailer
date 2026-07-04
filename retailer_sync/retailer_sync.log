@@ -1,0 +1,247 @@
+2026-06-09 14:05:35,946 [INFO] retailer_sync: --- Sync cycle start ---
+2026-06-09 14:05:36,195 [INFO] retailer_sync: Connected [mode=LOCAL server_time=2026-06-09 14:05:36]
+2026-06-09 14:05:36,287 [INFO] retailer_sync: Fetched 2 pending request(s). Last sync: 2026-06-09 14:05:36
+2026-06-09 14:05:36,288 [INFO] retailer_sync: --- Sync cycle end ---
+2026-06-09 14:06:23,809 [INFO] retailer_sync: --- Sync cycle start ---
+2026-06-09 14:06:23,920 [INFO] retailer_sync: Connected [mode=LOCAL server_time=2026-06-09 14:06:23]
+2026-06-09 14:06:24,024 [INFO] retailer_sync: Fetched 2 pending request(s). Last sync: 2026-06-09 14:06:24
+2026-06-09 14:06:24,025 [INFO] retailer_sync: --- Sync cycle end ---
+2026-06-09 14:10:09,286 [INFO] retailer_sync: Sync runner started. Server: http://127.0.0.1:8000 | Interval: 10s
+2026-06-09 14:10:09,286 [INFO] retailer_sync: SyncBridge started — polling every 10s
+2026-06-09 14:10:09,287 [INFO] retailer_sync: --- Sync cycle start ---
+2026-06-09 14:10:09,451 [INFO] retailer_sync: Connected [mode=LOCAL server_time=2026-06-09 14:10:09]
+2026-06-09 14:10:09,568 [INFO] retailer_sync: Fetched 2 pending request(s). Last sync: 2026-06-09 14:10:09
+2026-06-09 14:10:09,568 [INFO] retailer_sync: Cached 2 new request(s) in memory.
+2026-06-09 14:10:09,580 [INFO] retailer_sync: --- Sync cycle end ---
+2026-06-09 14:10:17,580 [INFO] retailer_sync: --- Sync cycle start ---
+2026-06-09 14:10:17,580 [INFO] retailer_sync: --- Sync cycle start ---
+2026-06-09 14:10:17,755 [INFO] retailer_sync: Connected [mode=LOCAL server_time=2026-06-09 14:10:17]
+2026-06-09 14:10:17,757 [INFO] retailer_sync: Connected [mode=LOCAL server_time=2026-06-09 14:10:17]
+2026-06-09 14:10:17,942 [INFO] retailer_sync: Fetched 2 pending request(s). Last sync: 2026-06-09 14:10:17
+2026-06-09 14:10:17,942 [INFO] retailer_sync: Cached 2 new request(s) in memory.
+2026-06-09 14:10:17,944 [INFO] retailer_sync: --- Sync cycle end ---
+2026-06-09 14:10:17,950 [INFO] retailer_sync: Fetched 2 pending request(s). Last sync: 2026-06-09 14:10:17
+2026-06-09 14:10:17,951 [INFO] retailer_sync: Cached 2 new request(s) in memory.
+2026-06-09 14:10:17,972 [INFO] retailer_sync: --- Sync cycle end ---
+2026-06-09 14:10:21,263 [INFO] retailer_sync: --- Sync cycle start ---
+2026-06-09 14:10:21,263 [INFO] retailer_sync: --- Sync cycle start ---
+2026-06-09 14:10:21,437 [INFO] retailer_sync: Connected [mode=LOCAL server_time=2026-06-09 14:10:21]
+2026-06-09 14:10:21,493 [INFO] retailer_sync: Connected [mode=LOCAL server_time=2026-06-09 14:10:21]
+2026-06-09 14:10:21,574 [INFO] retailer_sync: Fetched 2 pending request(s). Last sync: 2026-06-09 14:10:21
+2026-06-09 14:10:21,575 [INFO] retailer_sync: Cached 2 new request(s) in memory.
+2026-06-09 14:10:21,576 [INFO] retailer_sync: --- Sync cycle end ---
+2026-06-09 14:10:21,628 [INFO] retailer_sync: Fetched 2 pending request(s). Last sync: 2026-06-09 14:10:21
+2026-06-09 14:10:21,628 [INFO] retailer_sync: Cached 2 new request(s) in memory.
+2026-06-09 14:10:21,629 [INFO] retailer_sync: --- Sync cycle end ---
+2026-06-09 14:10:31,581 [INFO] retailer_sync: --- Sync cycle start ---
+2026-06-09 14:10:31,687 [INFO] retailer_sync: Connected [mode=LOCAL server_time=2026-06-09 14:10:31]
+2026-06-09 14:10:31,792 [INFO] retailer_sync: Fetched 2 pending request(s). Last sync: 2026-06-09 14:10:31
+2026-06-09 14:10:31,792 [INFO] retailer_sync: Cached 2 new request(s) in memory.
+2026-06-09 14:10:31,792 [INFO] retailer_sync: --- Sync cycle end ---
+2026-06-09 14:10:41,804 [INFO] retailer_sync: --- Sync cycle start ---
+2026-06-09 14:10:41,922 [INFO] retailer_sync: Connected [mode=LOCAL server_time=2026-06-09 14:10:41]
+2026-06-09 14:10:42,054 [INFO] retailer_sync: Fetched 2 pending request(s). Last sync: 2026-06-09 14:10:42
+2026-06-09 14:10:42,054 [INFO] retailer_sync: Cached 2 new request(s) in memory.
+2026-06-09 14:10:42,055 [INFO] retailer_sync: --- Sync cycle end ---
+2026-06-09 14:10:52,062 [INFO] retailer_sync: --- Sync cycle start ---
+2026-06-09 14:10:52,164 [INFO] retailer_sync: Connected [mode=LOCAL server_time=2026-06-09 14:10:52]
+2026-06-09 14:10:52,274 [INFO] retailer_sync: Fetched 2 pending request(s). Last sync: 2026-06-09 14:10:52
+2026-06-09 14:10:52,274 [INFO] retailer_sync: Cached 2 new request(s) in memory.
+2026-06-09 14:10:52,275 [INFO] retailer_sync: --- Sync cycle end ---
+2026-06-09 14:11:02,286 [INFO] retailer_sync: --- Sync cycle start ---
+2026-06-09 14:11:02,393 [INFO] retailer_sync: Connected [mode=LOCAL server_time=2026-06-09 14:11:02]
+2026-06-09 14:11:02,482 [INFO] retailer_sync: Fetched 2 pending request(s). Last sync: 2026-06-09 14:11:02
+2026-06-09 14:11:02,482 [INFO] retailer_sync: Cached 2 new request(s) in memory.
+2026-06-09 14:11:02,482 [INFO] retailer_sync: --- Sync cycle end ---
+2026-06-09 14:11:12,485 [INFO] retailer_sync: --- Sync cycle start ---
+2026-06-09 14:11:12,602 [INFO] retailer_sync: Connected [mode=LOCAL server_time=2026-06-09 14:11:12]
+2026-06-09 14:11:12,711 [INFO] retailer_sync: Fetched 2 pending request(s). Last sync: 2026-06-09 14:11:12
+2026-06-09 14:11:12,711 [INFO] retailer_sync: Cached 2 new request(s) in memory.
+2026-06-09 14:11:12,712 [INFO] retailer_sync: --- Sync cycle end ---
+2026-06-09 14:11:22,723 [INFO] retailer_sync: --- Sync cycle start ---
+2026-06-09 14:11:22,844 [INFO] retailer_sync: Connected [mode=LOCAL server_time=2026-06-09 14:11:22]
+2026-06-09 14:11:22,953 [INFO] retailer_sync: Fetched 2 pending request(s). Last sync: 2026-06-09 14:11:22
+2026-06-09 14:11:22,953 [INFO] retailer_sync: Cached 2 new request(s) in memory.
+2026-06-09 14:11:22,954 [INFO] retailer_sync: --- Sync cycle end ---
+2026-06-09 14:11:32,968 [INFO] retailer_sync: --- Sync cycle start ---
+2026-06-09 14:11:33,072 [INFO] retailer_sync: Connected [mode=LOCAL server_time=2026-06-09 14:11:33]
+2026-06-09 14:11:33,164 [INFO] retailer_sync: Fetched 2 pending request(s). Last sync: 2026-06-09 14:11:33
+2026-06-09 14:11:33,164 [INFO] retailer_sync: Cached 2 new request(s) in memory.
+2026-06-09 14:11:33,165 [INFO] retailer_sync: --- Sync cycle end ---
+2026-06-09 14:11:43,174 [INFO] retailer_sync: --- Sync cycle start ---
+2026-06-09 14:11:43,276 [INFO] retailer_sync: Connected [mode=LOCAL server_time=2026-06-09 14:11:43]
+2026-06-09 14:11:43,370 [INFO] retailer_sync: Fetched 2 pending request(s). Last sync: 2026-06-09 14:11:43
+2026-06-09 14:11:43,370 [INFO] retailer_sync: Cached 2 new request(s) in memory.
+2026-06-09 14:11:43,371 [INFO] retailer_sync: --- Sync cycle end ---
+2026-06-09 14:11:53,372 [INFO] retailer_sync: --- Sync cycle start ---
+2026-06-09 14:11:53,474 [INFO] retailer_sync: Connected [mode=LOCAL server_time=2026-06-09 14:11:53]
+2026-06-09 14:11:53,551 [INFO] retailer_sync: Fetched 2 pending request(s). Last sync: 2026-06-09 14:11:53
+2026-06-09 14:11:53,551 [INFO] retailer_sync: Cached 2 new request(s) in memory.
+2026-06-09 14:11:53,552 [INFO] retailer_sync: --- Sync cycle end ---
+2026-06-09 14:12:03,560 [INFO] retailer_sync: --- Sync cycle start ---
+2026-06-09 14:12:03,660 [INFO] retailer_sync: Connected [mode=LOCAL server_time=2026-06-09 14:12:03]
+2026-06-09 14:12:03,758 [INFO] retailer_sync: Fetched 2 pending request(s). Last sync: 2026-06-09 14:12:03
+2026-06-09 14:12:03,758 [INFO] retailer_sync: Cached 2 new request(s) in memory.
+2026-06-09 14:12:03,759 [INFO] retailer_sync: --- Sync cycle end ---
+2026-06-09 14:12:13,769 [INFO] retailer_sync: --- Sync cycle start ---
+2026-06-09 14:12:13,872 [INFO] retailer_sync: Connected [mode=LOCAL server_time=2026-06-09 14:12:13]
+2026-06-09 14:12:13,995 [INFO] retailer_sync: Fetched 2 pending request(s). Last sync: 2026-06-09 14:12:13
+2026-06-09 14:12:13,995 [INFO] retailer_sync: Cached 2 new request(s) in memory.
+2026-06-09 14:12:13,996 [INFO] retailer_sync: --- Sync cycle end ---
+2026-06-09 14:12:24,001 [INFO] retailer_sync: --- Sync cycle start ---
+2026-06-09 14:12:24,100 [INFO] retailer_sync: Connected [mode=LOCAL server_time=2026-06-09 14:12:24]
+2026-06-09 14:12:24,196 [INFO] retailer_sync: Fetched 2 pending request(s). Last sync: 2026-06-09 14:12:24
+2026-06-09 14:12:24,196 [INFO] retailer_sync: Cached 2 new request(s) in memory.
+2026-06-09 14:12:24,197 [INFO] retailer_sync: --- Sync cycle end ---
+2026-06-09 14:12:34,206 [INFO] retailer_sync: --- Sync cycle start ---
+2026-06-09 14:12:34,314 [INFO] retailer_sync: Connected [mode=LOCAL server_time=2026-06-09 14:12:34]
+2026-06-09 14:12:34,434 [INFO] retailer_sync: Fetched 2 pending request(s). Last sync: 2026-06-09 14:12:34
+2026-06-09 14:12:34,435 [INFO] retailer_sync: Cached 2 new request(s) in memory.
+2026-06-09 14:12:34,435 [INFO] retailer_sync: --- Sync cycle end ---
+2026-06-09 14:12:44,447 [INFO] retailer_sync: --- Sync cycle start ---
+2026-06-09 14:12:44,567 [INFO] retailer_sync: Connected [mode=LOCAL server_time=2026-06-09 14:12:44]
+2026-06-09 14:12:44,687 [INFO] retailer_sync: Fetched 2 pending request(s). Last sync: 2026-06-09 14:12:44
+2026-06-09 14:12:44,688 [INFO] retailer_sync: Cached 2 new request(s) in memory.
+2026-06-09 14:12:44,688 [INFO] retailer_sync: --- Sync cycle end ---
+2026-06-09 14:12:54,690 [INFO] retailer_sync: --- Sync cycle start ---
+2026-06-09 14:12:54,818 [INFO] retailer_sync: Connected [mode=LOCAL server_time=2026-06-09 14:12:54]
+2026-06-09 14:12:54,949 [INFO] retailer_sync: Fetched 2 pending request(s). Last sync: 2026-06-09 14:12:54
+2026-06-09 14:12:54,950 [INFO] retailer_sync: Cached 2 new request(s) in memory.
+2026-06-09 14:12:54,951 [INFO] retailer_sync: --- Sync cycle end ---
+2026-06-09 14:13:04,961 [INFO] retailer_sync: --- Sync cycle start ---
+2026-06-09 14:13:05,073 [INFO] retailer_sync: Connected [mode=LOCAL server_time=2026-06-09 14:13:05]
+2026-06-09 14:13:05,173 [INFO] retailer_sync: Fetched 2 pending request(s). Last sync: 2026-06-09 14:13:05
+2026-06-09 14:13:05,173 [INFO] retailer_sync: Cached 2 new request(s) in memory.
+2026-06-09 14:13:05,174 [INFO] retailer_sync: --- Sync cycle end ---
+2026-06-09 14:13:15,187 [INFO] retailer_sync: --- Sync cycle start ---
+2026-06-09 14:13:15,290 [INFO] retailer_sync: Connected [mode=LOCAL server_time=2026-06-09 14:13:15]
+2026-06-09 14:13:15,413 [INFO] retailer_sync: Fetched 2 pending request(s). Last sync: 2026-06-09 14:13:15
+2026-06-09 14:13:15,413 [INFO] retailer_sync: Cached 2 new request(s) in memory.
+2026-06-09 14:13:15,414 [INFO] retailer_sync: --- Sync cycle end ---
+2026-06-09 14:13:25,422 [INFO] retailer_sync: --- Sync cycle start ---
+2026-06-09 14:13:25,527 [INFO] retailer_sync: Connected [mode=LOCAL server_time=2026-06-09 14:13:25]
+2026-06-09 14:13:25,631 [INFO] retailer_sync: Fetched 2 pending request(s). Last sync: 2026-06-09 14:13:25
+2026-06-09 14:13:25,632 [INFO] retailer_sync: Cached 2 new request(s) in memory.
+2026-06-09 14:13:25,632 [INFO] retailer_sync: --- Sync cycle end ---
+2026-06-09 14:13:35,643 [INFO] retailer_sync: --- Sync cycle start ---
+2026-06-09 14:13:35,758 [INFO] retailer_sync: Connected [mode=LOCAL server_time=2026-06-09 14:13:35]
+2026-06-09 14:13:35,854 [INFO] retailer_sync: Fetched 2 pending request(s). Last sync: 2026-06-09 14:13:35
+2026-06-09 14:13:35,855 [INFO] retailer_sync: Cached 2 new request(s) in memory.
+2026-06-09 14:13:35,855 [INFO] retailer_sync: --- Sync cycle end ---
+2026-06-09 14:13:45,856 [INFO] retailer_sync: --- Sync cycle start ---
+2026-06-09 14:13:45,959 [INFO] retailer_sync: Connected [mode=LOCAL server_time=2026-06-09 14:13:45]
+2026-06-09 14:13:46,071 [INFO] retailer_sync: Fetched 2 pending request(s). Last sync: 2026-06-09 14:13:46
+2026-06-09 14:13:46,072 [INFO] retailer_sync: Cached 2 new request(s) in memory.
+2026-06-09 14:13:46,072 [INFO] retailer_sync: --- Sync cycle end ---
+2026-06-09 14:13:56,081 [INFO] retailer_sync: --- Sync cycle start ---
+2026-06-09 14:13:56,202 [INFO] retailer_sync: Connected [mode=LOCAL server_time=2026-06-09 14:13:56]
+2026-06-09 14:13:56,312 [INFO] retailer_sync: Fetched 2 pending request(s). Last sync: 2026-06-09 14:13:56
+2026-06-09 14:13:56,312 [INFO] retailer_sync: Cached 2 new request(s) in memory.
+2026-06-09 14:13:56,312 [INFO] retailer_sync: --- Sync cycle end ---
+2026-06-09 14:14:06,313 [INFO] retailer_sync: --- Sync cycle start ---
+2026-06-09 14:14:06,442 [INFO] retailer_sync: Connected [mode=LOCAL server_time=2026-06-09 14:14:06]
+2026-06-09 14:14:06,549 [INFO] retailer_sync: Fetched 2 pending request(s). Last sync: 2026-06-09 14:14:06
+2026-06-09 14:14:06,549 [INFO] retailer_sync: Cached 2 new request(s) in memory.
+2026-06-09 14:14:06,550 [INFO] retailer_sync: --- Sync cycle end ---
+2026-06-09 14:14:16,354 [INFO] retailer_sync: --- Sync cycle start ---
+2026-06-09 14:14:16,354 [INFO] retailer_sync: --- Sync cycle start ---
+2026-06-09 14:14:16,537 [INFO] retailer_sync: Connected [mode=LOCAL server_time=2026-06-09 14:14:16]
+2026-06-09 14:14:16,540 [INFO] retailer_sync: Connected [mode=LOCAL server_time=2026-06-09 14:14:16]
+2026-06-09 14:14:16,702 [INFO] retailer_sync: Fetched 2 pending request(s). Last sync: 2026-06-09 14:14:16
+2026-06-09 14:14:16,703 [INFO] retailer_sync: Cached 2 new request(s) in memory.
+2026-06-09 14:14:16,703 [INFO] retailer_sync: --- Sync cycle end ---
+2026-06-09 14:14:16,724 [INFO] retailer_sync: Fetched 2 pending request(s). Last sync: 2026-06-09 14:14:16
+2026-06-09 14:14:16,724 [INFO] retailer_sync: Cached 2 new request(s) in memory.
+2026-06-09 14:14:16,726 [INFO] retailer_sync: --- Sync cycle end ---
+2026-06-09 14:14:26,717 [INFO] retailer_sync: --- Sync cycle start ---
+2026-06-09 14:14:26,842 [INFO] retailer_sync: Connected [mode=LOCAL server_time=2026-06-09 14:14:26]
+2026-06-09 14:14:26,995 [INFO] retailer_sync: Fetched 2 pending request(s). Last sync: 2026-06-09 14:14:26
+2026-06-09 14:14:26,995 [INFO] retailer_sync: Cached 2 new request(s) in memory.
+2026-06-09 14:14:26,996 [INFO] retailer_sync: --- Sync cycle end ---
+2026-06-09 14:14:37,011 [INFO] retailer_sync: --- Sync cycle start ---
+2026-06-09 14:14:37,097 [INFO] retailer_sync: Connected [mode=LOCAL server_time=2026-06-09 14:14:37]
+2026-06-09 14:14:37,198 [INFO] retailer_sync: Fetched 2 pending request(s). Last sync: 2026-06-09 14:14:37
+2026-06-09 14:14:37,199 [INFO] retailer_sync: Cached 2 new request(s) in memory.
+2026-06-09 14:14:37,200 [INFO] retailer_sync: --- Sync cycle end ---
+2026-06-09 14:14:47,206 [INFO] retailer_sync: --- Sync cycle start ---
+2026-06-09 14:14:47,311 [INFO] retailer_sync: Connected [mode=LOCAL server_time=2026-06-09 14:14:47]
+2026-06-09 14:14:47,453 [INFO] retailer_sync: Fetched 2 pending request(s). Last sync: 2026-06-09 14:14:47
+2026-06-09 14:14:47,453 [INFO] retailer_sync: Cached 2 new request(s) in memory.
+2026-06-09 14:14:47,454 [INFO] retailer_sync: --- Sync cycle end ---
+2026-06-09 14:14:57,465 [INFO] retailer_sync: --- Sync cycle start ---
+2026-06-09 14:14:57,563 [INFO] retailer_sync: Connected [mode=LOCAL server_time=2026-06-09 14:14:57]
+2026-06-09 14:14:57,641 [INFO] retailer_sync: Fetched 2 pending request(s). Last sync: 2026-06-09 14:14:57
+2026-06-09 14:14:57,641 [INFO] retailer_sync: Cached 2 new request(s) in memory.
+2026-06-09 14:14:57,642 [INFO] retailer_sync: --- Sync cycle end ---
+2026-06-09 14:15:07,649 [INFO] retailer_sync: --- Sync cycle start ---
+2026-06-09 14:15:07,758 [INFO] retailer_sync: Connected [mode=LOCAL server_time=2026-06-09 14:15:07]
+2026-06-09 14:15:07,863 [INFO] retailer_sync: Fetched 2 pending request(s). Last sync: 2026-06-09 14:15:07
+2026-06-09 14:15:07,863 [INFO] retailer_sync: Cached 2 new request(s) in memory.
+2026-06-09 14:15:07,864 [INFO] retailer_sync: --- Sync cycle end ---
+2026-06-09 14:15:17,873 [INFO] retailer_sync: --- Sync cycle start ---
+2026-06-09 14:15:17,961 [INFO] retailer_sync: Connected [mode=LOCAL server_time=2026-06-09 14:15:17]
+2026-06-09 14:15:18,073 [INFO] retailer_sync: Fetched 2 pending request(s). Last sync: 2026-06-09 14:15:18
+2026-06-09 14:15:18,074 [INFO] retailer_sync: Cached 2 new request(s) in memory.
+2026-06-09 14:15:18,075 [INFO] retailer_sync: --- Sync cycle end ---
+2026-06-09 14:15:28,088 [INFO] retailer_sync: --- Sync cycle start ---
+2026-06-09 14:15:28,192 [INFO] retailer_sync: Connected [mode=LOCAL server_time=2026-06-09 14:15:28]
+2026-06-09 14:15:28,284 [INFO] retailer_sync: Fetched 2 pending request(s). Last sync: 2026-06-09 14:15:28
+2026-06-09 14:15:28,284 [INFO] retailer_sync: Cached 2 new request(s) in memory.
+2026-06-09 14:15:28,285 [INFO] retailer_sync: --- Sync cycle end ---
+2026-06-09 14:15:38,289 [INFO] retailer_sync: --- Sync cycle start ---
+2026-06-09 14:15:38,398 [INFO] retailer_sync: Connected [mode=LOCAL server_time=2026-06-09 14:15:38]
+2026-06-09 14:15:38,504 [INFO] retailer_sync: Fetched 2 pending request(s). Last sync: 2026-06-09 14:15:38
+2026-06-09 14:15:38,505 [INFO] retailer_sync: Cached 2 new request(s) in memory.
+2026-06-09 14:15:38,505 [INFO] retailer_sync: --- Sync cycle end ---
+2026-06-09 14:15:48,512 [INFO] retailer_sync: --- Sync cycle start ---
+2026-06-09 14:15:48,618 [INFO] retailer_sync: Connected [mode=LOCAL server_time=2026-06-09 14:15:48]
+2026-06-09 14:15:48,711 [INFO] retailer_sync: Fetched 2 pending request(s). Last sync: 2026-06-09 14:15:48
+2026-06-09 14:15:48,711 [INFO] retailer_sync: Cached 2 new request(s) in memory.
+2026-06-09 14:15:48,712 [INFO] retailer_sync: --- Sync cycle end ---
+2026-06-09 14:15:58,727 [INFO] retailer_sync: --- Sync cycle start ---
+2026-06-09 14:15:58,834 [INFO] retailer_sync: Connected [mode=LOCAL server_time=2026-06-09 14:15:58]
+2026-06-09 14:15:58,946 [INFO] retailer_sync: Fetched 2 pending request(s). Last sync: 2026-06-09 14:15:58
+2026-06-09 14:15:58,946 [INFO] retailer_sync: Cached 2 new request(s) in memory.
+2026-06-09 14:15:58,947 [INFO] retailer_sync: --- Sync cycle end ---
+2026-06-09 14:16:08,948 [INFO] retailer_sync: --- Sync cycle start ---
+2026-06-09 14:16:09,053 [INFO] retailer_sync: Connected [mode=LOCAL server_time=2026-06-09 14:16:09]
+2026-06-09 14:16:09,143 [INFO] retailer_sync: Fetched 2 pending request(s). Last sync: 2026-06-09 14:16:09
+2026-06-09 14:16:09,143 [INFO] retailer_sync: Cached 2 new request(s) in memory.
+2026-06-09 14:16:09,144 [INFO] retailer_sync: --- Sync cycle end ---
+2026-06-09 14:16:19,148 [INFO] retailer_sync: --- Sync cycle start ---
+2026-06-09 14:16:19,254 [INFO] retailer_sync: Connected [mode=LOCAL server_time=2026-06-09 14:16:19]
+2026-06-09 14:16:19,344 [INFO] retailer_sync: Fetched 2 pending request(s). Last sync: 2026-06-09 14:16:19
+2026-06-09 14:16:19,344 [INFO] retailer_sync: Cached 2 new request(s) in memory.
+2026-06-09 14:16:19,345 [INFO] retailer_sync: --- Sync cycle end ---
+2026-06-09 14:16:29,353 [INFO] retailer_sync: --- Sync cycle start ---
+2026-06-09 14:16:29,457 [INFO] retailer_sync: Connected [mode=LOCAL server_time=2026-06-09 14:16:29]
+2026-06-09 14:16:29,572 [INFO] retailer_sync: Fetched 2 pending request(s). Last sync: 2026-06-09 14:16:29
+2026-06-09 14:16:29,573 [INFO] retailer_sync: Cached 2 new request(s) in memory.
+2026-06-09 14:16:29,574 [INFO] retailer_sync: --- Sync cycle end ---
+2026-06-09 14:16:39,584 [INFO] retailer_sync: --- Sync cycle start ---
+2026-06-09 14:16:39,688 [INFO] retailer_sync: Connected [mode=LOCAL server_time=2026-06-09 14:16:39]
+2026-06-09 14:16:39,784 [INFO] retailer_sync: Fetched 2 pending request(s). Last sync: 2026-06-09 14:16:39
+2026-06-09 14:16:39,784 [INFO] retailer_sync: Cached 2 new request(s) in memory.
+2026-06-09 14:16:39,785 [INFO] retailer_sync: --- Sync cycle end ---
+2026-06-09 14:16:49,786 [INFO] retailer_sync: --- Sync cycle start ---
+2026-06-09 14:16:49,894 [INFO] retailer_sync: Connected [mode=LOCAL server_time=2026-06-09 14:16:49]
+2026-06-09 14:16:49,979 [INFO] retailer_sync: Fetched 2 pending request(s). Last sync: 2026-06-09 14:16:49
+2026-06-09 14:16:49,980 [INFO] retailer_sync: Cached 2 new request(s) in memory.
+2026-06-09 14:16:49,980 [INFO] retailer_sync: --- Sync cycle end ---
+2026-06-09 14:16:59,985 [INFO] retailer_sync: --- Sync cycle start ---
+2026-06-09 14:17:00,092 [INFO] retailer_sync: Connected [mode=LOCAL server_time=2026-06-09 14:17:00]
+2026-06-09 14:17:00,186 [INFO] retailer_sync: Fetched 2 pending request(s). Last sync: 2026-06-09 14:17:00
+2026-06-09 14:17:00,186 [INFO] retailer_sync: Cached 2 new request(s) in memory.
+2026-06-09 14:17:00,187 [INFO] retailer_sync: --- Sync cycle end ---
+2026-06-09 14:17:08,254 [INFO] retailer_sync: Sync runner stopped.
+2026-06-09 14:17:08,255 [INFO] retailer_sync: SyncBridge stopped.
+2026-06-09 14:47:36,948 [INFO] retailer_sync: --- Sync cycle start ---
+2026-06-09 14:47:37,060 [INFO] retailer_sync: Connected [mode=LOCAL server_time=2026-06-09 14:47:37]
+2026-06-09 14:47:37,164 [INFO] retailer_sync: Fetched 4 pending request(s). Last sync: 2026-06-09 14:47:37
+2026-06-09 14:47:37,165 [INFO] retailer_sync: --- Sync cycle end ---
+2026-06-29 15:54:47,422 [WARNING] retailer_sync: Connectivity issue [GET https://medicvistapharma.com/api/retailer/health/]: Connection failed: [SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: self-signed certificate (_ssl.c:1028)
+2026-06-29 15:55:37,387 [WARNING] retailer_sync: SSL verification disabled for development. Enable in production!
+2026-06-29 16:06:26,368 [INFO] retailer_sync: --- Sync cycle start ---
+2026-06-29 16:06:48,371 [INFO] retailer_sync: Connected [mode=LOCAL server_time=2026-06-29 16:06:48]
+2026-06-29 16:07:10,383 [INFO] retailer_sync: Fetched 0 pending request(s). Last sync: 2026-06-29 16:07:10
+2026-06-29 16:07:10,383 [INFO] retailer_sync: --- Sync cycle end ---

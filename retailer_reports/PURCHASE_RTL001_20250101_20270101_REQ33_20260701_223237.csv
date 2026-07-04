@@ -1,0 +1,8 @@
+﻿PURCHASE Report - 2025-01-01 to 2027-01-01
+Generated: 01-07-2026 22:32:37
+
+Invoice No,Date,Supplier,Product,Company,Packing,Batch,Expiry,MRP,Rate,Qty,Free,Discount,CGST,SGST,Total
+131,2025-04-04,fake,pa,pa,3,11111,12-2025,5.0,3.0,2.0,2.0,0.0,2.5,2.5,6.3
+234567,2026-06-29,fake,pa,pa,3,122,12-2026,6.0,2.0,2.0,2.0,0.0,2.5,2.5,4.2
+
+Total Records: 2,Total Amount: ₹10.50

@@ -580,9 +580,10 @@ class ReorderLevelScreen(tk.Frame):
             products = self.app.db.query("""
                 SELECT productid, product_name, product_company, product_packing
                 FROM core_productmaster
+                WHERE retailer_id = %s
                 ORDER BY product_name
                 LIMIT 100
-            """)
+            """, (self.app.db.config.retailer_id,))
 
             print(f"[DEBUG] Found {len(products)} products in database")
 

@@ -251,8 +251,21 @@ class SupplierScreen(tk.Frame):
     def _delete(self, item_id):
         vals = self.tree.item(item_id, "values")
         name = vals[1] if vals else ""
-        if messagebox.askyesno("Confirm Delete",
-                                f"Delete supplier '{name}'?\nThis will fail if they have invoices."):
+        # Check if supplier has linked invoices before asking confirmation
+        try:
+            inv_count = self.app.db.query(
+                "SELECT COUNT(*) AS cnt FROM core_invoicemaster WHERE supplierid_id=%s",
+                (item_id,))
+            if inv_count and int(inv_count[0].get("cnt", 0)) > 0:
+                messagebox.showerror(
+                    "Cannot Delete",
+                    f"Supplier '{name}' has {inv_count[0]['cnt']} invoice(s) linked.\n\n"
+                    "Delete all invoices for this supplier first, then try again."
+                )
+                return
+        except Exception:
+            pass
+        if messagebox.askyesno("Confirm Delete", f"Delete supplier '{name}'?"):
             try:
                 if self.app.db.column_exists("core_suppliermaster", "retailer_id"):
                     self.app.db.execute(

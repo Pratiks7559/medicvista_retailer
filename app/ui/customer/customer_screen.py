@@ -258,8 +258,21 @@ class CustomerScreen(tk.Frame):
     def _delete(self, item_id):
         vals = self.tree.item(item_id, "values")
         name = vals[1] if vals else ""
-        if messagebox.askyesno("Confirm Delete",
-                                f"Delete customer '{name}'?\nThis will fail if they have invoices."):
+        # Check linked sales invoices before asking confirmation
+        try:
+            inv_count = self.app.db.query(
+                "SELECT COUNT(*) AS cnt FROM core_salesinvoicemaster WHERE customerid_id=%s",
+                (item_id,))
+            if inv_count and int(inv_count[0].get("cnt", 0)) > 0:
+                messagebox.showerror(
+                    "Cannot Delete",
+                    f"Customer '{name}' has {inv_count[0]['cnt']} sales invoice(s) linked.\n\n"
+                    "Delete all sales invoices for this customer first, then try again."
+                )
+                return
+        except Exception:
+            pass
+        if messagebox.askyesno("Confirm Delete", f"Delete customer '{name}'?"):
             try:
                 if self.app.db.column_exists("core_customermaster", "retailer_id"):
                     self.app.db.execute(

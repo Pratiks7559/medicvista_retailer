@@ -1623,13 +1623,23 @@ class Database:
         )
         return float(rows[0]["total_stock"]) if rows else 0.0
 
-    def get_batches_for_product(self, product_id: int) -> list[dict[str, Any]]:
+    def get_batches_for_product(self, product_id: int,
+                                purchased_on_or_before: str = '') -> list[dict[str, Any]]:
         """Batches with stock > 0 for a product, from inventory_transaction.
+        Only includes batches whose first PURCHASE transaction_date <= purchased_on_or_before.
         Returns quantity and free_quantity separately (NOT multiplied by packing)."""
         if not self.table_exists("inventory_transaction"):
             self._ensure_inventory_transaction_table()
+
+        date_having = ""
+        date_params: list[Any] = []
+        if purchased_on_or_before:
+            # HAVING clause: the earliest purchase date for this batch must be <= sale date
+            date_having = " AND MIN(CASE WHEN t.transaction_type = 'PURCHASE' THEN DATE(t.transaction_date) ELSE NULL END) <= %s"
+            date_params = [purchased_on_or_before]
+
         return self.query(
-            """SELECT t.batch_no, t.expiry_date,
+            f"""SELECT t.batch_no, t.expiry_date,
                       COALESCE(SUM(CASE
                           WHEN t.transaction_type IN ('PURCHASE') THEN t.quantity
                           WHEN t.transaction_type IN ('PURCHASE_RETURN','REVERT_PURCHASE_RETURN','REVERT_PURCHASE') THEN -t.quantity
@@ -1650,9 +1660,9 @@ class Database:
                FROM inventory_transaction t
                WHERE t.product_id=%s AND t.retailer_id=%s
                GROUP BY t.batch_no, t.expiry_date
-               HAVING quantity > 0 OR free_quantity > 0
+               HAVING (quantity > 0 OR free_quantity > 0){date_having}
                ORDER BY t.expiry_date""",
-            (product_id, self.config.retailer_id)
+            [product_id, self.config.retailer_id] + date_params
         )
 
     def get_invoice_series(self) -> list[dict[str, Any]]:

@@ -101,7 +101,7 @@ def create_database_backup(app, parent_widget=None, on_complete=None):
     """
     Creates a retailer-filtered SQL backup using PyMySQL.
     Only rows belonging to the logged-in retailer_id are exported.
-    Saved to: Documents\MedicVista Backups\
+    Saved to: Documents\\MedicVista Backups\\
     """
     import os
     documents = Path.home() / "Documents" / "MedicVista Backups"

@@ -159,7 +159,7 @@
           const exp = it.expiry || it.exp || '';
           const amt = Number((it.amount !== undefined && it.amount !== null) ? it.amount : 0).toFixed(2);
           const hsn = it.hsn || '';
-          const tax = it.tax_percent ?? it.tax || 0;
+          const tax = (it.tax_percent ?? it.tax) || 0;
           tbody.insertAdjacentHTML('beforeend', `
             <tr>
               <td>${qty}</td>

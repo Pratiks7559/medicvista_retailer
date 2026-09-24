@@ -323,13 +323,16 @@ class Database:
             f"""
             SELECT si.sales_invoice_no, si.sales_invoice_date, c.customer_name,
                    si.sales_invoice_paid,
-                   COALESCE(SUM(sm.sale_total_amount), 0) AS invoice_total,
+                   COALESCE(SUM(sm.sale_total_amount), 0)
+                   + COALESCE(si.sales_transport_charges, 0)
+                   - COALESCE(si.whole_discount_amount, 0) AS invoice_total,
                    COUNT(sm.id) AS item_count
             FROM core_salesinvoicemaster si
             JOIN core_customermaster c ON c.customerid = si.customerid_id
             LEFT JOIN core_salesmaster sm ON sm.sales_invoice_no_id = si.sales_invoice_no
             WHERE 1=1{where}
-            GROUP BY si.sales_invoice_no, si.sales_invoice_date, c.customer_name, si.sales_invoice_paid
+            GROUP BY si.sales_invoice_no, si.sales_invoice_date, c.customer_name,
+                     si.sales_invoice_paid, si.sales_transport_charges, si.whole_discount_amount
             ORDER BY si.sales_invoice_date DESC, si.sales_invoice_no DESC
             LIMIT 500
             """,
@@ -349,6 +352,7 @@ class Database:
             params += [term, term, term]
         rows = self.query(
             f"""SELECT
+                    p.productid AS productid,
                     p.product_name AS name,
                     p.product_company AS company,
                     p.product_packing AS packing,
@@ -1024,19 +1028,71 @@ class Database:
             (invoice_id,)
         )
 
+    def _ensure_whole_discount_column(self) -> None:
+        """Add whole_discount_amount column to core_invoicemaster if missing."""
+        if not self.column_exists("core_invoicemaster", "whole_discount_amount"):
+            try:
+                self.execute(
+                    "ALTER TABLE core_invoicemaster "
+                    "ADD COLUMN whole_discount_amount DECIMAL(10,2) NOT NULL DEFAULT 0"
+                )
+                self._columns_cache[("core_invoicemaster", "whole_discount_amount")] = True
+            except Exception:
+                pass
+
+    def _ensure_sales_whole_discount_column(self) -> None:
+        """Add whole_discount_amount column to core_salesinvoicemaster if missing."""
+        if not self.column_exists("core_salesinvoicemaster", "whole_discount_amount"):
+            try:
+                self.execute(
+                    "ALTER TABLE core_salesinvoicemaster "
+                    "ADD COLUMN whole_discount_amount DECIMAL(10,2) NOT NULL DEFAULT 0"
+                )
+                self._columns_cache[("core_salesinvoicemaster", "whole_discount_amount")] = True
+            except Exception:
+                pass
+
+    def _ensure_sales_calculation_mode_column(self) -> None:
+        """Allow the percentage mode value used by the retailer sales form."""
+        if not self.column_exists("core_salesmaster", "sale_calculation_mode"):
+            return
+        try:
+            self.execute(
+                "ALTER TABLE core_salesmaster "
+                "MODIFY COLUMN sale_calculation_mode VARCHAR(10) "
+                "NOT NULL DEFAULT 'flat'"
+            )
+        except Exception:
+            pass
+
+    def _ensure_purchase_calculation_mode_column(self) -> None:
+        """Allow the percentage mode value used by the retailer invoice form."""
+        if not self.column_exists("core_purchasemaster", "purchase_calculation_mode"):
+            return
+        try:
+            self.execute(
+                "ALTER TABLE core_purchasemaster "
+                "MODIFY COLUMN purchase_calculation_mode VARCHAR(10) "
+                "NOT NULL DEFAULT 'flat'"
+            )
+        except Exception:
+            pass
+
     def create_invoice(self, data: dict) -> int:
         """Insert InvoiceMaster, return new invoiceid."""
+        self._ensure_whole_discount_column()
         with self.cursor() as cur:
             cur.execute(
                 """INSERT INTO core_invoicemaster
                    (retailer_id, invoice_no, invoice_date, supplierid_id,
-                    transport_charges, invoice_total, invoice_paid, payment_status)
-                   VALUES (%s,%s,%s,%s,%s,%s,0,'pending')""",
+                    transport_charges, invoice_total, whole_discount_amount, invoice_paid, payment_status)
+                   VALUES (%s,%s,%s,%s,%s,%s,%s,0,'pending')""",
                 (
                     self.config.retailer_id,
                     data["invoice_no"], data["invoice_date"],
                     data["supplierid"], data.get("transport_charges", 0),
                     data.get("invoice_total", 0),
+                    data.get("whole_discount_amount", 0),
                 )
             )
             return cur.lastrowid
@@ -1045,10 +1101,11 @@ class Database:
         self.execute(
             """UPDATE core_invoicemaster
                SET invoice_no=%s, invoice_date=%s, supplierid_id=%s,
-                   transport_charges=%s, invoice_total=%s
+                   transport_charges=%s, invoice_total=%s, whole_discount_amount=%s
                WHERE invoiceid=%s""",
             (data["invoice_no"], data["invoice_date"], data["supplierid"],
              data.get("transport_charges", 0), data.get("invoice_total", 0),
+             data.get("whole_discount_amount", 0),
              invoice_id)
         )
 
@@ -1229,6 +1286,7 @@ class Database:
     def add_purchase_item(self, invoice_id: int, invoice_no: str, supplier_id: int, item: dict) -> int:
         """Insert one PurchaseMaster row, update stock cache, return purchaseid.
         Stock stored = qty * packing_multiplier (boxes → individual units)."""
+        self._ensure_purchase_calculation_mode_column()
         qty = float(item.get("quantity", 0))
         free = float(item.get("free_qty", 0))
         packing_qty = self._get_packing_qty(item["productid"], item.get("product_packing", ""))
@@ -1304,18 +1362,205 @@ class Database:
         self.execute("DELETE FROM core_purchasemaster WHERE purchaseid=%s", (purchase_id,))
 
     def recalc_invoice_total(self, invoice_id: int) -> float:
-        """Sum all items + transport and update invoice_total. Returns new total."""
+        """Sum all items + transport - whole_discount and update invoice_total. Returns new total."""
         rows = self.query(
-            "SELECT COALESCE(SUM(total_amount),0) AS t, transport_charges FROM core_invoicemaster i "
+            "SELECT COALESCE(SUM(pm.total_amount),0) AS t, "
+            "i.transport_charges, COALESCE(i.whole_discount_amount,0) AS whole_disc "
+            "FROM core_invoicemaster i "
             "LEFT JOIN core_purchasemaster pm ON pm.product_invoiceid_id=i.invoiceid "
-            "WHERE i.invoiceid=%s GROUP BY i.transport_charges", (invoice_id,))
+            "WHERE i.invoiceid=%s GROUP BY i.transport_charges, i.whole_discount_amount",
+            (invoice_id,))
         if rows:
-            total = float(rows[0]["t"]) + float(rows[0].get("transport_charges") or 0)
+            total = (float(rows[0]["t"])
+                     + float(rows[0].get("transport_charges") or 0)
+                     - float(rows[0].get("whole_disc") or 0))
         else:
             total = 0.0
         self.execute("UPDATE core_invoicemaster SET invoice_total=%s WHERE invoiceid=%s",
                      (total, invoice_id))
         return total
+
+    def get_customer_pending_invoices(self, customer_id: int) -> list[dict[str, Any]]:
+        """Get all pending/partial sales invoices for a customer filtered by retailer_id, oldest first."""
+        rid = self.config.retailer_id
+        return self.query(
+            """SELECT si.sales_invoice_no, si.sales_invoice_date,
+                      si.sales_invoice_paid,
+                      COALESCE((SELECT SUM(sale_total_amount) FROM core_salesmaster
+                                WHERE sales_invoice_no_id=si.sales_invoice_no), 0) AS invoice_total,
+                      ROUND(
+                        COALESCE((SELECT SUM(sale_total_amount) FROM core_salesmaster
+                                  WHERE sales_invoice_no_id=si.sales_invoice_no), 0)
+                        - si.sales_invoice_paid, 2) AS balance
+               FROM core_salesinvoicemaster si
+               WHERE si.customerid_id=%s AND si.retailer_id=%s
+                 AND ROUND(
+                       COALESCE((SELECT SUM(sale_total_amount) FROM core_salesmaster
+                                 WHERE sales_invoice_no_id=si.sales_invoice_no), 0)
+                       - si.sales_invoice_paid, 2) > 0
+               ORDER BY si.sales_invoice_date ASC, si.sales_invoice_no ASC""",
+            (customer_id, rid)
+        )
+
+    def get_customer_advance_balance(self, customer_id: int) -> float:
+        """Get total advance/overpayment credit for a customer."""
+        rid = self.config.retailer_id
+        self._ensure_customer_advance_table()
+        rows = self.query(
+            "SELECT COALESCE(SUM(advance_amount), 0) AS total FROM customer_advance_payment "
+            "WHERE customer_id=%s AND retailer_id=%s",
+            (customer_id, rid)
+        )
+        return float(rows[0]['total']) if rows else 0.0
+
+    def _ensure_customer_advance_table(self) -> None:
+        if not self.table_exists('customer_advance_payment'):
+            self.execute(
+                """CREATE TABLE IF NOT EXISTS customer_advance_payment (
+                    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+                    retailer_id BIGINT NOT NULL,
+                    customer_id BIGINT NOT NULL,
+                    advance_amount DECIMAL(12,2) NOT NULL DEFAULT 0,
+                    payment_date DATE NOT NULL,
+                    payment_mode VARCHAR(30) DEFAULT 'Cash',
+                    payment_ref_no VARCHAR(100) DEFAULT '',
+                    notes VARCHAR(500) DEFAULT '',
+                    created_at DATETIME DEFAULT NOW(),
+                    INDEX idx_cust_ret (customer_id, retailer_id)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"""
+            )
+            self._tables_cache['customer_advance_payment'] = True
+
+    def distribute_customer_payment(self, customer_id: int, pay_date: str, total_amount: float,
+                                     mode: str, ref: str, notes: str = '') -> dict:
+        """Distribute customer receipt across oldest pending sales invoices first.
+        Overpayment stored as advance credit for future invoices."""
+        rid = self.config.retailer_id
+        self._ensure_customer_advance_table()
+        invoices_paid = 0
+
+        advance_bal = self.get_customer_advance_balance(customer_id)
+        total_distributable = round(total_amount + advance_bal, 2)
+        remaining = total_distributable
+
+        pending = self.get_customer_pending_invoices(customer_id)
+        for inv in pending:
+            if remaining <= 0.009:
+                break
+            balance = round(float(inv['balance']), 2)
+            pay = round(min(remaining, balance), 2)
+            self.add_sales_payment(inv['sales_invoice_no'], pay_date, pay, mode, ref)
+            remaining = round(remaining - pay, 2)
+            invoices_paid += 1
+
+        # Deduct used advance
+        advance_used = round(advance_bal - max(0.0, remaining - total_amount), 2)
+        if advance_used > 0.009:
+            self.execute(
+                "INSERT INTO customer_advance_payment "
+                "(retailer_id, customer_id, advance_amount, payment_date, payment_mode, payment_ref_no, notes) "
+                "VALUES (%s,%s,%s,%s,%s,%s,%s)",
+                (rid, customer_id, -advance_used, pay_date, mode, ref, 'Advance used for invoices')
+            )
+
+        # Store overpayment as new advance
+        advance_stored = round(min(remaining, total_amount), 2)
+        if advance_stored > 0.009:
+            self.execute(
+                "INSERT INTO customer_advance_payment "
+                "(retailer_id, customer_id, advance_amount, payment_date, payment_mode, payment_ref_no, notes) "
+                "VALUES (%s,%s,%s,%s,%s,%s,%s)",
+                (rid, customer_id, advance_stored, pay_date, mode, ref, notes or 'Overpayment advance')
+            )
+
+        return {'invoices_paid': invoices_paid, 'advance_stored': advance_stored, 'remaining': remaining}
+
+    def get_supplier_pending_invoices(self, supplier_id: int) -> list[dict[str, Any]]:
+        """Get all pending/partial invoices for a supplier filtered by retailer_id, oldest first."""
+        rid = self.config.retailer_id
+        return self.query(
+            """SELECT invoiceid, invoice_no, invoice_date, invoice_total, invoice_paid,
+                      ROUND(invoice_total - invoice_paid, 2) AS balance, payment_status
+               FROM core_invoicemaster
+               WHERE supplierid_id=%s AND retailer_id=%s
+                 AND payment_status IN ('pending','partial')
+                 AND invoice_total > invoice_paid
+               ORDER BY invoice_date ASC, invoiceid ASC""",
+            (supplier_id, rid)
+        )
+
+    def get_supplier_advance_balance(self, supplier_id: int) -> float:
+        """Get total advance/overpayment credit for a supplier."""
+        rid = self.config.retailer_id
+        self._ensure_supplier_advance_table()
+        rows = self.query(
+            "SELECT COALESCE(SUM(advance_amount), 0) AS total FROM supplier_advance_payment "
+            "WHERE supplier_id=%s AND retailer_id=%s",
+            (supplier_id, rid)
+        )
+        return float(rows[0]['total']) if rows else 0.0
+
+    def _ensure_supplier_advance_table(self) -> None:
+        if not self.table_exists('supplier_advance_payment'):
+            self.execute(
+                """CREATE TABLE IF NOT EXISTS supplier_advance_payment (
+                    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+                    retailer_id BIGINT NOT NULL,
+                    supplier_id BIGINT NOT NULL,
+                    advance_amount DECIMAL(12,2) NOT NULL DEFAULT 0,
+                    payment_date DATE NOT NULL,
+                    payment_mode VARCHAR(30) DEFAULT 'Cash',
+                    payment_ref_no VARCHAR(100) DEFAULT '',
+                    notes VARCHAR(500) DEFAULT '',
+                    created_at DATETIME DEFAULT NOW(),
+                    INDEX idx_sup_ret (supplier_id, retailer_id)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"""
+            )
+            self._tables_cache['supplier_advance_payment'] = True
+
+    def distribute_supplier_payment(self, supplier_id: int, pay_date: str, total_amount: float,
+                                     mode: str, ref: str, notes: str = '') -> dict:
+        """Distribute payment + existing advance across oldest pending invoices first.
+        Any leftover is stored as advance credit for future invoices."""
+        rid = self.config.retailer_id
+        self._ensure_supplier_advance_table()
+        invoices_paid = 0
+
+        advance_bal = self.get_supplier_advance_balance(supplier_id)
+        total_distributable = round(total_amount + advance_bal, 2)
+        remaining = total_distributable
+
+        pending = self.get_supplier_pending_invoices(supplier_id)
+        for inv in pending:
+            if remaining <= 0.009:
+                break
+            balance = round(float(inv['balance']), 2)
+            pay = round(min(remaining, balance), 2)
+            self.add_invoice_payment(inv['invoiceid'], pay_date, pay, mode, ref)
+            remaining = round(remaining - pay, 2)
+            invoices_paid += 1
+
+        # Deduct used advance
+        advance_used = round(advance_bal - max(0.0, remaining - total_amount), 2)
+        if advance_used > 0.009:
+            self.execute(
+                "INSERT INTO supplier_advance_payment "
+                "(retailer_id, supplier_id, advance_amount, payment_date, payment_mode, payment_ref_no, notes) "
+                "VALUES (%s,%s,%s,%s,%s,%s,%s)",
+                (rid, supplier_id, -advance_used, pay_date, mode, ref, 'Advance used for invoices')
+            )
+
+        # Store overpayment as new advance
+        advance_stored = round(min(remaining, total_amount), 2)
+        if advance_stored > 0.009:
+            self.execute(
+                "INSERT INTO supplier_advance_payment "
+                "(retailer_id, supplier_id, advance_amount, payment_date, payment_mode, payment_ref_no, notes) "
+                "VALUES (%s,%s,%s,%s,%s,%s,%s)",
+                (rid, supplier_id, advance_stored, pay_date, mode, ref, notes or 'Overpayment advance')
+            )
+
+        return {'invoices_paid': invoices_paid, 'advance_stored': advance_stored, 'remaining': remaining}
 
     def add_invoice_payment(self, invoice_id: int, date: str, amount: float, mode: str, ref: str) -> None:
         rid = self.config.retailer_id

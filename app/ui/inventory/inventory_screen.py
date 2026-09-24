@@ -320,13 +320,13 @@ class InventoryScreen(tk.Frame):
         from collections import defaultdict
         groups = defaultdict(list)
         for r in rows:
-            key = (r.get("name", ""), r.get("company", ""), r.get("packing", ""), r.get("category", ""))
+            key = (r.get("productid"), r.get("name", ""), r.get("company", ""), r.get("packing", ""), r.get("category", ""))
             groups[key].append(r)
 
         total_val = low = out = 0.0
 
         # Process and insert in bulk
-        for idx, ((name, company, packing, category), batches) in enumerate(groups.items()):
+        for idx, ((product_id, name, company, packing, category), batches) in enumerate(groups.items()):
             total_stock = stock_val = 0.0
             worst = "ok"
 
@@ -347,8 +347,8 @@ class InventoryScreen(tk.Frame):
             tag = "low" if worst == "low" else "out" if worst == "out" else "expired" if worst == "expired" else ("odd" if idx % 2 else "even")
             status_lbl = {"out": "⚠ Out of Stock", "ok": "✓ In Stock", "low": "⚡ Low Stock", "expired": "⏰ Expired"}.get(worst, "✓ In Stock")
 
-            prod_id = f"prod_{name}_{company}_{idx}"
-            self.tree.insert("", "end", iid=prod_id, tags=(tag,),
+            tree_product_id = f"prod_{product_id}_{idx}"
+            self.tree.insert("", "end", iid=tree_product_id, tags=(tag,),
                 values=(f"▶  {name}\n    {company} | {packing}",
                     f"{len(batches)} batch{'es' if len(batches) > 1 else ''}",
                     f"{total_stock:.0f}", f"₹{stock_val:.2f}", status_lbl, "📜"))
@@ -362,7 +362,7 @@ class InventoryScreen(tk.Frame):
                 st = str(b.get("status", "")).lower()
                 batch_status = "⚠ Out" if "out" in st else "⚡ Low" if "low" in st else "⏰ Expired" if "exp" in st else "✓ OK"
                 
-                self.tree.insert(prod_id, "end", tags=("batch",),
+                self.tree.insert(tree_product_id, "end", tags=("batch",),
                     values=(f"    └─ Batch: {bn}", f"Exp: {exp}", f"{qty:.0f}",
                         f"₹{val:.2f}", batch_status, f"MRP: ₹{_safe_float(b.get('mrp', 0)):.2f}"))
 
@@ -392,18 +392,16 @@ class InventoryScreen(tk.Frame):
         sel = self.tree.focus()
         if not sel:
             return
+        if self.tree.parent(sel):
+            return
         v = self.tree.item(sel, "values")
         product_name, company = v[0], v[1]
         try:
-            prod = self.app.db.query(
-                "SELECT productid FROM core_productmaster "
-                "WHERE product_name=%s AND product_company=%s LIMIT 1",
-                (product_name, company),
-            )
-            if not prod:
+            product_id = int(sel.split("_")[1])
+            if not product_id:
                 messagebox.showwarning("Not Found", "Product not found in database.", parent=self)
                 return
-            TransactionHistoryDialog(self, self.app, prod[0]["productid"], product_name, company)
+            TransactionHistoryDialog(self, self.app, product_id, product_name, company)
         except Exception as e:
             messagebox.showerror("Error", f"Failed to load transactions: {e}", parent=self)
 
@@ -496,7 +494,8 @@ class InventoryScreen(tk.Frame):
             search_params = ()
         
         query = f"""
-            SELECT p.product_name AS name,
+                 SELECT p.productid AS productid,
+                     p.product_name AS name,
                    p.product_company AS company,
                    p.product_packing AS packing,
                    p.product_category AS category,

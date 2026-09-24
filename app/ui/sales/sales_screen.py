@@ -329,11 +329,12 @@ class SalesScreen(tk.Frame):
                 messagebox.showerror("Error", str(e))
 
     def _add_payment(self):
-        sel, vals = self._get_selected()
-        if not vals:
-            return
         from .payment_dialog import SalesPaymentDialog
-        SalesPaymentDialog(self, self.app, invoice_no=sel, on_saved=self.on_show)
+        sel = self.tree.focus()
+        if sel:
+            SalesPaymentDialog(self, self.app, invoice_no=sel, on_saved=self.on_show)
+        else:
+            SalesPaymentDialog(self, self.app, invoice_no="", on_saved=self.on_show)
 
     def _action_menu(self):
         sel = self.tree.focus()

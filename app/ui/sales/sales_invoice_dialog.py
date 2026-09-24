@@ -111,6 +111,7 @@ class SalesInvoiceDialog(tk.Toplevel):
         self.var_invoice_date = tk.StringVar(value=date.today().isoformat())
         DateEntry(frm, textvariable=self.var_invoice_date, width=13,
                   bg=L["card"]).grid(row=0, column=3, sticky="w", padx=(0,12), pady=4)
+        self.var_invoice_date.trace_add("write", lambda *_: self._on_date_change())
 
         lbl("Customer", 1, 0)
         self._cust_widget = AutoSuggestEntry(
@@ -126,10 +127,48 @@ class SalesInvoiceDialog(tk.Toplevel):
         lbl("Transport (₹)", 2, 0)
         self.var_transport = tk.StringVar(value="0")
         ent(self.var_transport, 2, 1, w=10)
+        self.var_transport.trace_add("write", lambda *_: self._refresh_footer())
+
+        # ── Whole Invoice Discount ──
+        lbl("Disc Mode", 3, 0)
+        self.var_whole_disc_mode = tk.StringVar(value="whole")
+        disc_mode_frame = tk.Frame(frm, bg=L["card"])
+        disc_mode_frame.grid(row=3, column=1, columnspan=3, sticky="w", pady=4)
+        tk.Radiobutton(disc_mode_frame, text="Whole Invoice", variable=self.var_whole_disc_mode,
+                       value="whole", font=FONT["sm"], bg=L["card"], fg=L["orange"],
+                       activebackground=L["card"], selectcolor=L["card"], cursor="hand2",
+                       command=self._on_whole_disc_mode_change).pack(side="left", padx=(10, 0))
+
+        self._whole_disc_frame = tk.Frame(frm, bg=L["card"])
+        self._whole_disc_frame.grid(row=4, column=0, columnspan=6, sticky="w", pady=(0, 4))
+        tk.Label(self._whole_disc_frame, text="Whole Disc", font=FONT["sm"],
+                 bg=L["card"], fg=L["lbl"]).pack(side="left", padx=(0, 6))
+        self.var_whole_disc_type = tk.StringVar(value="percent")
+        tk.Radiobutton(self._whole_disc_frame, text="Flat ₹", variable=self.var_whole_disc_type,
+                   value="flat", font=FONT["sm"], bg=L["card"], fg=L["head"],
+                   activebackground=L["card"], selectcolor=L["card"], cursor="hand2",
+                   command=self._refresh_footer).pack(side="left")
+        tk.Radiobutton(self._whole_disc_frame, text="%", variable=self.var_whole_disc_type,
+                   value="percent", font=FONT["sm"], bg=L["card"], fg=L["head"],
+                   activebackground=L["card"], selectcolor=L["card"], cursor="hand2",
+                   command=self._refresh_footer).pack(side="left", padx=(6, 0))
+        self.var_whole_disc_val = tk.StringVar(value="0")
+        whole_disc_entry = tk.Entry(self._whole_disc_frame, textvariable=self.var_whole_disc_val,
+                                    font=FONT["base"], width=9, relief="solid", bd=1,
+                                    bg=L["input_bg"], fg=L["orange"],
+                                    insertbackground=L["orange"],
+                                    highlightthickness=1, highlightbackground=L["orange"],
+                                    highlightcolor=L["orange"])
+        whole_disc_entry.pack(side="left", padx=(8, 6))
+        whole_disc_entry.bind("<FocusOut>", lambda e: self._refresh_footer())
+        self.var_whole_disc_display = tk.StringVar(value="Disc: ₹0.00  |  Total: ₹0.00")
+        tk.Label(self._whole_disc_frame, textvariable=self.var_whole_disc_display,
+                 font=FONT["bold"], bg=L["card"], fg=L["orange"]).pack(side="left", padx=4)
+        self._whole_disc_frame.grid()
 
         self._cust_info = tk.StringVar()
         tk.Label(frm, textvariable=self._cust_info, font=FONT["sm"],
-                 bg=L["card"], fg=L["muted"]).grid(row=2, column=2, columnspan=2, sticky="w")
+                 bg=L["card"], fg=L["muted"]).grid(row=5, column=0, columnspan=6, sticky="w")
 
     def _on_cust_select(self, row):
         self._customer_id = int(row["customerid"])
@@ -137,6 +176,14 @@ class SalesInvoiceDialog(tk.Toplevel):
             f"Type: {row.get('customer_type','')}  |  "
             f"Mobile: {row.get('customer_mobile','')}  |  "
             f"Credit: {row.get('customer_credit_days', 0)} days")
+
+    def _on_whole_disc_mode_change(self):
+        if self.var_whole_disc_mode.get() == "whole":
+            self._whole_disc_frame.grid()
+        else:
+            self._whole_disc_frame.grid_remove()
+            self.var_whole_disc_val.set("0")
+        self._refresh_footer()
 
     def _prefetch_invoice_no(self):
         try:
@@ -228,23 +275,20 @@ class SalesInvoiceDialog(tk.Toplevel):
         self.var_free_qty = tk.StringVar(value="0")
         ent(self.var_free_qty, 2, 5, w=7)
 
-        # Row 3: Scheme, Discount, CGST, SGST
-        lbl("Scheme%", 3, 0)
-        self.var_scheme = tk.StringVar(value="0")
-        ent(self.var_scheme, 3, 1, w=7)
-
-        lbl("Disc(₹)", 3, 2)
+        # Row 3: Percentage discount, CGST, SGST
+        lbl("Discount %", 3, 0)
         self.var_discount = tk.StringVar(value="0")
-        de = ent(self.var_discount, 3, 3, w=9)
+        de = ent(self.var_discount, 3, 1, w=9)
         de.bind("<FocusOut>", lambda e: self._calc())
+        self.var_disc_mode = tk.StringVar(value="percent")
 
-        lbl("CGST%", 3, 4)
+        lbl("CGST%", 3, 3)
         self.var_cgst = tk.StringVar(value="0")
-        ent(self.var_cgst, 3, 5, w=6)
+        ent(self.var_cgst, 3, 4, w=6)
 
-        lbl("SGST%", 3, 6)
+        lbl("SGST%", 3, 5)
         self.var_sgst = tk.StringVar(value="0")
-        se = ent(self.var_sgst, 3, 7, w=6)
+        se = ent(self.var_sgst, 3, 6, w=6)
         se.bind("<FocusOut>", lambda e: self._calc())
 
         # Row 4: Line total + Add button
@@ -280,7 +324,11 @@ class SalesInvoiceDialog(tk.Toplevel):
         self._stock_var.set("Stock: -")
         if not self._product_id: return
         try:
-            batches = self.db.get_batches_for_product(self._product_id)
+            inv_date = self.var_invoice_date.get().strip()
+            batches = self.db.get_batches_for_product(
+                self._product_id,
+                purchased_on_or_before=inv_date if inv_date else ''
+            )
             opts = []
             for b in batches:
                 key = b["batch_no"]
@@ -337,9 +385,12 @@ class SalesInvoiceDialog(tk.Toplevel):
         mrp  = _f(self.var_mrp.get()); qty = _f(self.var_qty.get())
         disc = _f(self.var_discount.get())
         cgst = _f(self.var_cgst.get()); sgst = _f(self.var_sgst.get())
-        total = round((mrp * qty - disc) * (1 + (cgst + sgst) / 100), 2)
-        # Show user input qty as-is (NO packing multiplication for display)
-        self._line_total_var.set(f"Qty: {int(qty)} units   Line Total: ₹ {total:.2f}")
+        base = mrp * qty
+        disc = max(0.0, min(disc, 100.0))
+        discounted = base * (1 - disc / 100)
+        total = round(discounted * (1 + (cgst + sgst) / 100), 2)
+        disc_label = f"{disc:.1f}%"
+        self._line_total_var.set(f"Qty: {int(qty)} units  |  Disc: {disc_label}   Line Total: ₹ {total:.2f}")
 
     # ── Items table ────────────────────────────────────────────────────────────
     def _build_items_table(self, parent):
@@ -425,9 +476,14 @@ class SalesInvoiceDialog(tk.Toplevel):
                 if not messagebox.askyesno("Low Stock", f"Only {avail:.0f} available (Qty: {qty_avail:.0f}, Free: {free_avail:.0f}). Proceed?", parent=self):
                     return
 
-        mrp  = _f(self.var_mrp.get()); disc = _f(self.var_discount.get())
+        mrp = _f(self.var_mrp.get())
+        rate = _f(self.var_rate.get())
+        disc = _f(self.var_discount.get())
         cgst = _f(self.var_cgst.get()); sgst = _f(self.var_sgst.get())
-        total = round((mrp * qty - disc) * (1 + (cgst + sgst) / 100), 2)
+        base = mrp * qty
+        disc = max(0.0, min(disc, 100.0))
+        discounted = base * (1 - disc / 100)
+        total = round(discounted * (1 + (cgst + sgst) / 100), 2)
 
         p = self.db.get_product_full(self._product_id) or {}
         item = {
@@ -436,10 +492,12 @@ class SalesInvoiceDialog(tk.Toplevel):
             "product_company": p.get("product_company", ""),
             "product_packing": p.get("product_packing", ""),
             "batch_no": batch, "expiry": self.var_expiry.get().strip(),
-            "mrp": _f(self.var_mrp.get()), "sale_rate": _f(self.var_rate.get()),
+            "mrp": mrp, "sale_rate": rate,
             "quantity": qty, "free_qty": _f(self.var_free_qty.get()),
-            "scheme": _f(self.var_scheme.get()), "discount": disc,
-            "cgst": cgst, "sgst": sgst, "rate_applied": "A", "total": total,
+            "scheme": 0, "discount": disc,
+            "cgst": cgst, "sgst": sgst,
+            "calc_mode": "percent",
+            "rate_applied": "A", "total": total,
         }
 
         if self._edit_item_idx is not None and self._edit_item_idx < len(self._items):
@@ -459,11 +517,12 @@ class SalesInvoiceDialog(tk.Toplevel):
         self._prod_widget.focus()
 
     def _row(self, item):
+        disc_display = f"{item['discount']:.1f}%"
         return (len(self._items) if self._edit_item_idx is None else "",
                 item["product_name"], item["batch_no"], item["expiry"],
                 f"{item['mrp']:.2f}", f"{item['sale_rate']:.2f}",
                 f"{item['quantity']:.0f}", f"{item['free_qty']:.0f}",
-                f"{item['scheme']:.1f}", f"{item['discount']:.2f}",
+                f"{item['scheme']:.1f}", disc_display,
                 f"{item['cgst']:.1f}", f"{item['sgst']:.1f}",
                 f"₹{item['total']:.2f}")
 
@@ -484,8 +543,8 @@ class SalesInvoiceDialog(tk.Toplevel):
         self.var_rate.set(str(item["sale_rate"]))
         self.var_qty.set(str(item["quantity"]))
         self.var_free_qty.set(str(item["free_qty"]))
-        self.var_scheme.set(str(item["scheme"]))
         self.var_discount.set(str(item["discount"]))
+        self.var_disc_mode.set("percent")
         self.var_cgst.set(str(item["cgst"]))
         self.var_sgst.set(str(item["sgst"]))
         self._calc()
@@ -499,9 +558,20 @@ class SalesInvoiceDialog(tk.Toplevel):
         self._refresh_footer()
 
     def _refresh_footer(self):
-        total = sum(i["total"] for i in self._items)
+        items_total = sum(i["total"] for i in self._items)
         transport = _f(self.var_transport.get())
-        self.var_total_lbl.set(f"Grand Total: ₹ {total + transport:.2f}")
+        mode = self.var_whole_disc_mode.get()
+        whole_disc_amt = 0.0
+        if mode == "whole":
+            disc_val = _f(self.var_whole_disc_val.get())
+            disc_val = max(0.0, min(disc_val, 100.0))
+            base = items_total + transport
+            whole_disc_amt = min(base * disc_val / 100, base)
+            grand = round(base - whole_disc_amt, 2)
+            self.var_whole_disc_display.set(f"Disc: ₹{whole_disc_amt:.2f}  |  Total: ₹{grand:.2f}")
+        else:
+            grand = round(items_total + transport, 2)
+        self.var_total_lbl.set(f"Grand Total: ₹ {grand:.2f}")
         self._count_var.set(f"{len(self._items)} item(s)")
         for i, iid in enumerate(self.items_tree.get_children(), 1):
             vals = list(self.items_tree.item(iid, "values"))
@@ -515,10 +585,15 @@ class SalesInvoiceDialog(tk.Toplevel):
         self.var_batch.set(""); self.var_expiry.set(""); self.var_mrp.set("0")
         self.var_rate.set("0"); self.var_qty.set("1")
         self._stock_var.set("Stock: -")
-        for v in (self.var_free_qty, self.var_scheme, self.var_discount,
-                  self.var_cgst, self.var_sgst):
+        for v in (self.var_free_qty, self.var_discount, self.var_cgst, self.var_sgst):
             v.set("0")
+        self.var_disc_mode.set("percent")
         self._line_total_var.set("Line Total: ₹ 0.00")
+
+    def _on_date_change(self):
+        """Reload batches when invoice date changes, so only valid batches show."""
+        if self._product_id:
+            self._load_batches()
 
     def _load_existing(self):
         """Load existing invoice data - ULTRA OPTIMIZED for instant loading."""
@@ -542,6 +617,10 @@ class SalesInvoiceDialog(tk.Toplevel):
             cgst = float(sm.get("sale_cgst", 0))
             sgst = float(sm.get("sale_sgst", 0))
             
+            calc_mode = "percent"
+            base = mrp * qty
+            disc = max(0.0, min(disc, 100.0))
+            discounted = base * (1 - disc / 100)
             self._items.append({
                 "productid": sm["productid_id"],
                 "product_name": sm.get("product_name", ""),
@@ -557,8 +636,9 @@ class SalesInvoiceDialog(tk.Toplevel):
                 "discount": disc,
                 "cgst": cgst,
                 "sgst": sgst,
+                "calc_mode": calc_mode,
                 "rate_applied": sm.get("rate_applied", "A"),
-                "total": round((mrp * qty - disc) * (1 + (cgst + sgst) / 100), 2),
+                "total": round(discounted * (1 + (cgst + sgst) / 100), 2),
             })
         
         # Single UI update - insert all rows at once
@@ -579,6 +659,16 @@ class SalesInvoiceDialog(tk.Toplevel):
             transport = _f(self.var_transport.get())
             manual_no = self.var_invoice_no.get().strip()
             use_manual = manual_no and manual_no not in ("(auto)", self._auto_inv_no or "")
+
+            # Whole invoice discount
+            mode = self.var_whole_disc_mode.get()
+            whole_disc_amt = 0.0
+            if mode == "whole":
+                disc_val = max(0.0, _f(self.var_whole_disc_val.get()))
+                disc_type = self.var_whole_disc_type.get()
+                items_total = sum(i["total"] for i in self._items)
+                base = items_total + transport
+                whole_disc_amt = min(base * disc_val / 100, base) if disc_type == "percent" else min(disc_val, base)
             
             customer_id = self._customer_id if self._customer_id else None
             
@@ -599,6 +689,10 @@ class SalesInvoiceDialog(tk.Toplevel):
                         )
                         customer_id = cur.lastrowid
 
+            # Ensure whole_discount_amount column exists in sales table
+            self.db._ensure_sales_whole_discount_column()
+            self.db._ensure_sales_calculation_mode_column()
+
             # Use context manager for transaction
             with self.db.cursor() as cur:
                 if self._invoice_no:
@@ -613,8 +707,8 @@ class SalesInvoiceDialog(tk.Toplevel):
                     # Update header
                     cur.execute(
                         "UPDATE core_salesinvoicemaster SET sales_invoice_date=%s, customerid_id=%s, "
-                        "sales_transport_charges=%s WHERE sales_invoice_no=%s",
-                        (inv_date, customer_id, transport, inv_no))
+                        "sales_transport_charges=%s, whole_discount_amount=%s WHERE sales_invoice_no=%s",
+                        (inv_date, customer_id, transport, whole_disc_amt, inv_no))
                 elif use_manual:
                     # Check if manual number exists
                     cur.execute("SELECT 1 FROM core_salesinvoicemaster WHERE sales_invoice_no=%s", (manual_no,))
@@ -623,9 +717,9 @@ class SalesInvoiceDialog(tk.Toplevel):
                     inv_no = manual_no
                     cur.execute(
                         "INSERT INTO core_salesinvoicemaster "
-                        "(sales_invoice_no, retailer_id, sales_invoice_date, customerid_id, sales_transport_charges, sales_invoice_paid) "
-                        "VALUES (%s,%s,%s,%s,%s,0)",
-                        (inv_no, self.db.config.retailer_id, inv_date, customer_id, transport))
+                        "(sales_invoice_no, retailer_id, sales_invoice_date, customerid_id, sales_transport_charges, sales_invoice_paid, whole_discount_amount) "
+                        "VALUES (%s,%s,%s,%s,%s,0,%s)",
+                        (inv_no, self.db.config.retailer_id, inv_date, customer_id, transport, whole_disc_amt))
                 else:
                     # Auto-generate invoice number with lock to prevent race condition
                     cur.execute(
@@ -637,34 +731,37 @@ class SalesInvoiceDialog(tk.Toplevel):
                     inv_no = f"INV{n:07d}"
                     cur.execute(
                         "INSERT INTO core_salesinvoicemaster "
-                        "(sales_invoice_no, retailer_id, sales_invoice_date, customerid_id, sales_transport_charges, sales_invoice_paid) "
-                        "VALUES (%s,%s,%s,%s,%s,0)",
-                        (inv_no, self.db.config.retailer_id, inv_date, customer_id, transport))
+                        "(sales_invoice_no, retailer_id, sales_invoice_date, customerid_id, sales_transport_charges, sales_invoice_paid, whole_discount_amount) "
+                        "VALUES (%s,%s,%s,%s,%s,0,%s)",
+                        (inv_no, self.db.config.retailer_id, inv_date, customer_id, transport, whole_disc_amt))
 
                 # Batch insert sales items WITHOUT packing multiplication
                 for item in self._items:
-                    qty = float(item.get("quantity", 0))  # User entered qty directly
+                    qty = float(item.get("quantity", 0))
                     free = float(item.get("free_qty", 0))
-                    # DON'T multiply by packing - use qty as-is (already in units)
                     stock_deduct = qty
                     mrp = float(item.get("mrp", 0))
                     rate = float(item.get("sale_rate", 0))
                     discount = float(item.get("discount", 0))
                     cgst = float(item.get("cgst", 0))
                     sgst = float(item.get("sgst", 0))
-                    total = round((mrp * qty - discount) * (1 + (cgst + sgst) / 100), 2)
-                    
+                    calc_mode = "percent"
+                    base = mrp * qty
+                    discount = max(0.0, min(discount, 100.0))
+                    discounted = base * (1 - discount / 100)
+                    total = round(discounted * (1 + (cgst + sgst) / 100), 2)
                     cur.execute(
                         "INSERT INTO core_salesmaster "
                         "(retailer_id, sales_invoice_no_id, customerid_id, productid_id, product_name, product_company, "
                         "product_packing, product_batch_no, product_expiry, product_MRP, sale_rate, sale_quantity, "
                         "sale_free_qty, sale_scheme, sale_discount, sale_cgst, sale_sgst, sale_total_amount, "
                         "sale_entry_date, rate_applied, sale_calculation_mode) "
-                        "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,NOW(),%s,'flat')",
+                        "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,NOW(),%s,%s)",
                         (self.db.config.retailer_id, inv_no, customer_id, item["productid"],
                          item["product_name"], item.get("product_company", ""), item.get("product_packing", ""),
                          item.get("batch_no", ""), item.get("expiry", ""), mrp, rate, qty, free,
-                         float(item.get("scheme", 0)), discount, cgst, sgst, total, item.get("rate_applied", "A")))
+                         float(item.get("scheme", 0)), discount, cgst, sgst, total,
+                         item.get("rate_applied", "A"), calc_mode))
                     
                     # Log inventory transaction with direct qty (no packing multiplication)
                     if self.db.table_exists("inventory_transaction"):

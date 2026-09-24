@@ -487,7 +487,7 @@ class SearchBar(tk.Frame):
         
         # Search entry
         self.search_var = tk.StringVar()
-        self.search_var.trace('w', self.on_text_changed)
+        self.search_var.trace_add('write', self.on_text_changed)
         
         self.entry = tk.Entry(
             self.container,

@@ -264,7 +264,7 @@ class PurchaseMaster(BaseModel):
         self.purchase_entry_date = purchase_entry_date if purchase_entry_date is not None else datetime.datetime.now() # DATETIME(6) NOT NULL
         self.CGST = CGST  # FLOAT NOT NULL DEFAULT 0.0
         self.SGST = SGST  # FLOAT NOT NULL DEFAULT 0.0
-        self.purchase_calculation_mode = purchase_calculation_mode  # VARCHAR(5) NOT NULL DEFAULT 'flat'
+        self.purchase_calculation_mode = purchase_calculation_mode  # VARCHAR(10) NOT NULL DEFAULT 'flat'
         self.rate_a = rate_a  # FLOAT DEFAULT 0.0
         self.rate_b = rate_b  # FLOAT DEFAULT 0.0
         self.rate_c = rate_c  # FLOAT DEFAULT 0.0
@@ -322,7 +322,7 @@ class SalesMaster(BaseModel):
         self.sale_total_amount = sale_total_amount  # FLOAT NOT NULL DEFAULT 0.0
         self.sale_entry_date = sale_entry_date if sale_entry_date is not None else datetime.datetime.now() # DATETIME(6) NOT NULL
         self.rate_applied = rate_applied  # VARCHAR(10) DEFAULT 'NA'
-        self.sale_calculation_mode = sale_calculation_mode  # VARCHAR(5) NOT NULL DEFAULT 'flat'
+        self.sale_calculation_mode = sale_calculation_mode  # VARCHAR(10) NOT NULL DEFAULT 'flat'
         self.source_challan_no = source_challan_no # VARCHAR(50)
         self.source_challan_date = source_challan_date # DATE
 

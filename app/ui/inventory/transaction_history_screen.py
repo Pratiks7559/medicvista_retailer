@@ -3,6 +3,8 @@ import tkinter as tk
 from tkinter import ttk, messagebox
 from datetime import datetime
 
+from ...inventory_date_sql import transaction_document_date_filter
+
 BG = "#f1f5f9"; CARD = "#ffffff"; BDR = "#e2e8f0"
 TXT = "#1e293b"; MUTED = "#64748b"; HDR_BG = "#0f172a"
 BLUE = "#3b82f6"; BLUE_H = "#2563eb"; BLUE_L = "#eff6ff"
@@ -136,6 +138,7 @@ class TransactionHistoryScreen(tk.Frame):
         self._load_products()
 
     def _load_products(self):
+        self.app.db._ensure_inventory_transaction_table()
         for item in self.product_tree.get_children():
             self.product_tree.delete(item)
         
@@ -160,7 +163,7 @@ class TransactionHistoryScreen(tk.Frame):
             
             # Add FY filter if in FY mode
             if current_mode == "fy" and fy_start and fy_end:
-                query += " AND DATE(t.transaction_date) BETWEEN %s AND %s"
+                query += transaction_document_date_filter("t")
             
             query += """) as txn_count,
                        (SELECT COALESCE(SUM(CASE
@@ -174,7 +177,7 @@ class TransactionHistoryScreen(tk.Frame):
             
             # Add FY filter for stock calculation
             if current_mode == "fy" and fy_start and fy_end:
-                query += " AND DATE(t2.transaction_date) BETWEEN %s AND %s"
+                query += transaction_document_date_filter("t2")
             
             query += """) as total_stock
                 FROM core_productmaster p
@@ -323,6 +326,7 @@ class ProductHistoryDialog(tk.Toplevel):
 
     def _load_history(self):
         try:
+            self.app.db._ensure_inventory_transaction_table()
             rid = self.app.config_data.retailer_id
             
             # Get FY dates and mode
@@ -333,7 +337,8 @@ class ProductHistoryDialog(tk.Toplevel):
             
             # Base query
             base_query = """
-                SELECT t.transaction_date as date, t.transaction_type as type,
+                SELECT COALESCE(t.invoice_date, t.transaction_date) as date,
+                       t.transaction_type as type,
                        t.reference_number as invoice_no, t.batch_no,
                        t.quantity, t.rate, t.total_value as amount,
                        CASE 
@@ -364,10 +369,10 @@ class ProductHistoryDialog(tk.Toplevel):
             # Add FY filter if in FY mode
             parent_mode = getattr(self.app, '_transaction_history_mode', None)
             if parent_mode and parent_mode == "fy" and fy_start and fy_end:
-                base_query += " AND DATE(t.transaction_date) BETWEEN %s AND %s"
+                base_query += transaction_document_date_filter("t")
                 params.extend([fy_start, fy_end])
             
-            base_query += " ORDER BY t.transaction_date DESC"
+            base_query += " ORDER BY COALESCE(t.invoice_date, t.transaction_date) DESC"
             
             # Get transactions
             transactions = self.app.db.query(base_query, tuple(params))
@@ -391,13 +396,13 @@ class ProductHistoryDialog(tk.Toplevel):
                     WHEN transaction_type IN ('SALE','STOCK_ISSUE','REVERT_SALE') THEN -(quantity + free_quantity)
                     WHEN transaction_type IN ('SALES_RETURN','REVERT_SALES_RETURN') THEN (quantity + free_quantity)
                     ELSE 0 END), 0) AS stock
-                FROM inventory_transaction
-                WHERE product_id = %s AND retailer_id = %s
+                FROM inventory_transaction t
+                WHERE t.product_id = %s AND t.retailer_id = %s
             """
             stock_params = [self.product_id, rid]
             
             if parent_mode and parent_mode == "fy" and fy_start and fy_end:
-                stock_query += " AND DATE(transaction_date) BETWEEN %s AND %s"
+                stock_query += transaction_document_date_filter("t")
                 stock_params.extend([fy_start, fy_end])
             
             stock_result = self.app.db.query(stock_query, tuple(stock_params))

@@ -2,10 +2,12 @@
 import tkinter as tk
 from tkinter import ttk, messagebox
 from datetime import date
+from math import isfinite
 
 from ...styles import COLORS, FONT
 from ..purchase.purchase_invoice_dialog import (
-    AutoSuggestEntry, DateEntry, L, _f, _fmt_expiry
+    AutoSuggestEntry, DateEntry, L, _center_child_dialog, _center_invoice_dialog,
+    _f, _fmt_expiry
 )
 
 
@@ -25,19 +27,21 @@ class SalesInvoiceDialog(tk.Toplevel):
         self._auto_inv_no = None
 
         self.title("Sales Invoice")
-        self.state("zoomed")
         self.configure(bg=L["bg"])
+        _center_invoice_dialog(self)
         self.grab_set()
 
         self._build()
         self.protocol("WM_DELETE_WINDOW", self.destroy)
         self.bind("<Escape>", lambda e: self.destroy())
-        self.bind("<F2>", lambda e: self._save(close_after=False))
+        self.bind("<F2>", lambda e: self._save_and_new())
         self.bind("<F4>", lambda e: self._add_item())
         self.bind("<F6>", lambda e: self._save_and_new())
         self.bind("<Delete>", lambda e: self._remove_item())
         self.bind("<Control-p>", lambda e: self._print_receipt())
         self.bind("<Control-l>", lambda e: self._save_and_print())
+        self.bind("<Alt-w>", self._open_batch_picker_shortcut)
+        self.bind("<Alt-W>", self._open_batch_picker_shortcut)
 
         if invoice_data:
             self._load_existing()
@@ -51,14 +55,14 @@ class SalesInvoiceDialog(tk.Toplevel):
 
         tk.Label(top, text="  💊 Sales Invoice", font=FONT["h3"],
                  bg=L["topbar"], fg="#f8fafc").pack(side="left", padx=10)
-        tk.Label(top, text="F2=Save  F6=Save&New  Ctrl+L=Save&Print  F4=Add  Del=Remove  Esc=Close",
+        tk.Label(top, text=        "Alt+W=Batch  F2=Save&New  F6=Save&New  Ctrl+L=Save&Print  F4=Add  Del=Remove  Esc=Close",
                  font=FONT["sm"], bg=L["topbar"], fg="#94a3b8").pack(side="left", padx=10)
 
         for txt, cmd, col in [
             ("Esc Close",         self.destroy,           "#64748b"),
             ("Ctrl+L Save&Print", self._save_and_print,   "#f59e0b"),
             ("F6 Save & New",     self._save_and_new,     "#7c3aed"),
-            ("F2 Save",           lambda: self._save(close_after=False), "#16a34a"),
+            ("F2 Save & New",     self._save_and_new,     "#16a34a"),
         ]:
             tk.Button(top, text=txt, bg=col, fg="white", font=FONT["sm"],
                       bd=0, relief="flat", padx=14, pady=6, cursor="hand2",
@@ -268,6 +272,7 @@ class SalesInvoiceDialog(tk.Toplevel):
         lbl("Qty *", 2, 2)
         self.var_qty = tk.StringVar(value="1")
         qe = ent(self.var_qty, 2, 3, w=7)
+        self._qty_entry = qe
         qe.bind("<FocusOut>", lambda e: self._calc())
         qe.bind("<Return>", lambda e: self._add_item())
 
@@ -315,9 +320,10 @@ class SalesInvoiceDialog(tk.Toplevel):
         else:
             m2 = _re.search(r'(\d+)', str(packing))
             self._packing_mult = int(m2.group(1)) if m2 else 1
-        self._load_batches()
+        self._load_batches(show_picker=True)
 
-    def _load_batches(self):
+    def _load_batches(self, show_picker=False):
+        previous_batch = self.var_batch.get().strip()
         self._batch_data = {}
         self._batch_combo["values"] = []
         self.var_batch.set(""); self.var_expiry.set(""); self.var_mrp.set("0")
@@ -335,11 +341,133 @@ class SalesInvoiceDialog(tk.Toplevel):
                 self._batch_data[key] = b
                 opts.append(key)
             self._batch_combo["values"] = opts
-            if opts:
-                self._batch_combo.current(0)
-                self.var_batch.set(opts[0])
+            if show_picker:
+                if opts:
+                    self._show_batch_picker(batches)
+                else:
+                    messagebox.showinfo(
+                        "No Batch Stock",
+                        "No available batches were found for this product.",
+                        parent=self,
+                    )
+            elif previous_batch in self._batch_data:
+                self.var_batch.set(previous_batch)
                 self._on_batch_select()
-        except: pass
+        except Exception as exc:
+            messagebox.showerror("Batch Load Error", str(exc), parent=self)
+
+    def _open_batch_picker_shortcut(self, _event=None):
+        if not self._product_id:
+            messagebox.showinfo(
+                "Select Product", "Select a product before opening its batch list.",
+                parent=self,
+            )
+            return "break"
+        self._load_batches(show_picker=True)
+        return "break"
+
+    def _show_batch_picker(self, batches):
+        dialog = tk.Toplevel(self)
+        dialog.title("Select Product Batch")
+        dialog.transient(self)
+        dialog.resizable(True, True)
+        dialog.configure(bg=L["bg"])
+        dialog.geometry("720x390")
+
+        tk.Label(
+            dialog, text="Select a batch for this product",
+            font=FONT["bold"], bg=L["bg"], fg=L["head"],
+        ).pack(anchor="w", padx=14, pady=(12, 8))
+
+        table_frame = tk.Frame(dialog, bg=L["card"])
+        table_frame.pack(fill="both", expand=True, padx=12, pady=(0, 8))
+        columns = ("batch", "expiry", "mrp", "quantity", "free_quantity")
+        tree = ttk.Treeview(
+            table_frame, columns=columns, show="headings",
+            selectmode="browse", height=10,
+        )
+        headings = (
+            ("batch", "Batch", 190),
+            ("expiry", "Expiry", 120),
+            ("mrp", "MRP (₹)", 110),
+            ("quantity", "Qty", 110),
+            ("free_quantity", "Free Qty", 110),
+        )
+        for column, title, width in headings:
+            tree.heading(column, text=title)
+            tree.column(column, width=width, anchor="center", stretch=True)
+
+        scrollbar = ttk.Scrollbar(table_frame, orient="vertical", command=tree.yview)
+        tree.configure(yscrollcommand=scrollbar.set)
+        tree.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+
+        batch_by_iid = {}
+        for index, batch in enumerate(batches):
+            iid = str(index)
+            batch_by_iid[iid] = batch
+            tree.insert(
+                "", "end", iid=iid,
+                values=(
+                    batch.get("batch_no", ""),
+                    batch.get("expiry_date", ""),
+                    f'{float(batch.get("mrp") or 0):.2f}',
+                    f'{float(batch.get("quantity") or 0):g}',
+                    f'{float(batch.get("free_quantity") or 0):g}',
+                ),
+            )
+
+        selected_batch = []
+
+        def select_batch(event=None):
+            iid = ""
+            if event is not None and hasattr(event, "y"):
+                iid = tree.identify_row(event.y)
+            if iid not in batch_by_iid:
+                selection = tree.selection()
+                iid = selection[0] if selection else ""
+            batch = batch_by_iid.get(iid)
+            if batch is None:
+                messagebox.showwarning(
+                    "Select Batch", "Please select a batch first.", parent=dialog
+                )
+                return
+            selected_batch.append(batch["batch_no"])
+            self.var_batch.set(batch["batch_no"])
+            self._on_batch_select()
+            dialog.destroy()
+
+        buttons = tk.Frame(dialog, bg=L["bg"])
+        buttons.pack(fill="x", padx=12, pady=(0, 12))
+        tk.Button(
+            buttons, text="Cancel", font=FONT["sm"], bg="#64748b", fg="white",
+            relief="flat", bd=0, padx=16, pady=6, command=dialog.destroy,
+        ).pack(side="right", padx=(6, 0))
+        tk.Button(
+            buttons, text="Select Batch", font=FONT["sm"], bg=L["green"], fg="white",
+            relief="flat", bd=0, padx=16, pady=6, command=select_batch,
+        ).pack(side="right")
+
+        tree.bind("<Double-1>", select_batch)
+        dialog.bind("<Return>", select_batch)
+        dialog.bind("<Escape>", lambda _event: dialog.destroy())
+        dialog.protocol("WM_DELETE_WINDOW", dialog.destroy)
+        dialog.update_idletasks()
+        self.update_idletasks()
+        x = self.winfo_rootx() + max(0, (self.winfo_width() - dialog.winfo_width()) // 2)
+        y = self.winfo_rooty() + max(0, (self.winfo_height() - dialog.winfo_height()) // 2)
+        dialog.geometry(f"+{x}+{y}")
+        first_row = tree.get_children()
+        if first_row:
+            tree.selection_set(first_row[0])
+            tree.focus(first_row[0])
+        dialog.grab_set()
+        if first_row:
+            tree.focus_set()
+        dialog.wait_window()
+        if selected_batch and self.winfo_exists():
+            self._qty_entry.focus_set()
+            self._qty_entry.select_range(0, "end")
 
     def _on_batch_select(self, e=None):
         key = self.var_batch.get()
@@ -649,6 +777,104 @@ class SalesInvoiceDialog(tk.Toplevel):
         # Single footer refresh
         self._refresh_footer()
 
+    def _invoice_total(self):
+        items_total = sum(i["total"] for i in self._items)
+        base = items_total + _f(self.var_transport.get())
+        if self.var_whole_disc_mode.get() != "whole":
+            return round(base, 2)
+
+        disc_val = max(0.0, _f(self.var_whole_disc_val.get()))
+        if self.var_whole_disc_type.get() == "percent":
+            discount = min(base * disc_val / 100, base)
+        else:
+            discount = min(disc_val, base)
+        return round(base - discount, 2)
+
+    def _prompt_initial_payment(self, invoice_total):
+        dialog = tk.Toplevel(self)
+        dialog.title("Invoice Payment")
+        dialog.transient(self)
+        dialog.resizable(False, False)
+        dialog.configure(bg=L["card"])
+        _center_child_dialog(dialog, self, 460, 260)
+
+        payment_mode = tk.StringVar(value="Credit")
+        amount_var = tk.StringVar(value=f"{invoice_total:.2f}")
+        result = []
+
+        amount_row = tk.Frame(dialog, bg=L["card"])
+        amount_row.pack(fill="x", padx=16, pady=(14, 6))
+        tk.Label(amount_row, text="Amount (₹)", font=FONT["sm"],
+                 bg=L["card"], fg=L["lbl"]).pack(side="left")
+        amount_entry = tk.Entry(
+            amount_row, textvariable=amount_var, font=FONT["base"], width=16,
+            relief="solid", bd=1, justify="right",
+        )
+        amount_entry.pack(side="right")
+        amount_entry.select_range(0, "end")
+
+        tk.Label(dialog, text="Select payment mode", font=FONT["bold"],
+                 bg=L["card"], fg=L["head"]).pack(anchor="w", padx=16, pady=(0, 4))
+        modes = tk.Frame(dialog, bg=L["card"])
+        modes.pack(anchor="w", padx=12)
+        mode_buttons = []
+        for mode in ("Credit", "Cash"):
+            mode_button = tk.Radiobutton(
+                modes, text=mode, variable=payment_mode, value=mode,
+                font=FONT["base"], bg=L["card"], fg=L["head"],
+                activebackground=L["card"], selectcolor=L["card"],
+            )
+            mode_button.pack(side="left", padx=10)
+            mode_button.bind(
+                "<FocusIn>",
+                lambda _event, selected_mode=mode: payment_mode.set(selected_mode),
+            )
+            mode_buttons.append(mode_button)
+
+        def save_payment():
+            try:
+                amount = round(float(amount_var.get().strip()), 2)
+            except ValueError:
+                messagebox.showerror("Invalid Amount", "Enter a valid payment amount.", parent=dialog)
+                return
+            if not isfinite(amount) or amount < 0 or amount > invoice_total:
+                messagebox.showerror(
+                    "Invalid Amount",
+                    f"Amount must be between ₹0.00 and ₹{invoice_total:.2f}.",
+                    parent=dialog,
+                )
+                return
+            result.append((payment_mode.get(), amount))
+            dialog.destroy()
+
+        for mode_button in mode_buttons:
+            mode_button.bind(
+                "<Return>",
+                lambda _event: (save_payment(), "break")[1],
+            )
+
+        buttons = tk.Frame(dialog, bg=L["card"])
+        buttons.pack(fill="x", padx=16, pady=(8, 14))
+        tk.Button(buttons, text="Cancel", font=FONT["sm"], command=dialog.destroy,
+                  bg="#64748b", fg="white", relief="flat", bd=0,
+                  padx=14, pady=5).pack(side="right", padx=(6, 0))
+        tk.Button(buttons, text="Save", font=FONT["sm"], command=save_payment,
+                  bg=L["green"], fg="white", relief="flat", bd=0,
+                  padx=16, pady=5).pack(side="right")
+
+        dialog.protocol("WM_DELETE_WINDOW", dialog.destroy)
+        dialog.bind("<Escape>", lambda _event: dialog.destroy())
+        dialog.bind("<Return>", lambda _event: save_payment())
+        dialog.grab_set()
+        amount_entry.focus_set()
+        amount_entry.select_range(0, "end")
+        try:
+            dialog.wait_window()
+        finally:
+            if self.winfo_exists():
+                self.grab_set()
+        return result[0] if result else None
+
     # ── Save ───────────────────────────────────────────────────────────────────
     def _save(self, close_after=False):
         try:
@@ -659,6 +885,11 @@ class SalesInvoiceDialog(tk.Toplevel):
             transport = _f(self.var_transport.get())
             manual_no = self.var_invoice_no.get().strip()
             use_manual = manual_no and manual_no not in ("(auto)", self._auto_inv_no or "")
+            initial_payment = None
+            if not self._invoice_no:
+                initial_payment = self._prompt_initial_payment(self._invoice_total())
+                if initial_payment is None:
+                    return False
 
             # Whole invoice discount
             mode = self.var_whole_disc_mode.get()
@@ -692,6 +923,10 @@ class SalesInvoiceDialog(tk.Toplevel):
             # Ensure whole_discount_amount column exists in sales table
             self.db._ensure_sales_whole_discount_column()
             self.db._ensure_sales_calculation_mode_column()
+            self.db._ensure_inventory_transaction_table()
+            payment_has_retailer_id = self.db.column_exists(
+                "core_salesinvoicepaid", "retailer_id"
+            ) if initial_payment and initial_payment[1] > 0 else False
 
             # Use context manager for transaction
             with self.db.cursor() as cur:
@@ -768,11 +1003,35 @@ class SalesInvoiceDialog(tk.Toplevel):
                         cur.execute(
                             "INSERT INTO inventory_transaction "
                             "(retailer_id, product_id, batch_no, expiry_date, transaction_type, quantity, free_quantity, "
-                            "transaction_date, reference_type, reference_number, rate, mrp, total_value, created_at, remarks) "
-                            "VALUES (%s,%s,%s,%s,'SALE',%s,%s,NOW(),'INVOICE',%s,%s,%s,%s,NOW(),%s)",
+                            "transaction_date, invoice_date, reference_type, reference_number, rate, mrp, total_value, created_at, remarks) "
+                            "VALUES (%s,%s,%s,%s,'SALE',%s,%s,NOW(),%s,'INVOICE',%s,%s,%s,%s,NOW(),%s)",
                             (self.db.config.retailer_id, item["productid"], item.get("batch_no", ""),
-                             item.get("expiry", ""), stock_deduct, free, inv_no, rate, mrp, total,
+                             item.get("expiry", ""), stock_deduct, free, inv_date, inv_no, rate, mrp, total,
                              f"Sales Invoice {inv_no}"))
+
+                if initial_payment and initial_payment[1] > 0:
+                    payment_mode, payment_amount = initial_payment
+                    payment_date = date.today().isoformat()
+                    if payment_has_retailer_id:
+                        cur.execute(
+                            "INSERT INTO core_salesinvoicepaid "
+                            "(retailer_id, sales_ip_invoice_no_id, sales_payment_date, "
+                            "sales_payment_amount, sales_payment_mode, sales_payment_ref_no) "
+                            "VALUES (%s,%s,%s,%s,%s,%s)",
+                            (self.db.config.retailer_id, inv_no, payment_date,
+                             payment_amount, payment_mode, ""))
+                    else:
+                        cur.execute(
+                            "INSERT INTO core_salesinvoicepaid "
+                            "(sales_ip_invoice_no_id, sales_payment_date, sales_payment_amount, "
+                            "sales_payment_mode, sales_payment_ref_no) "
+                            "VALUES (%s,%s,%s,%s,%s)",
+                            (inv_no, payment_date, payment_amount, payment_mode, ""))
+                    cur.execute(
+                        "UPDATE core_salesinvoicemaster "
+                        "SET sales_invoice_paid=COALESCE(sales_invoice_paid, 0)+%s "
+                        "WHERE sales_invoice_no=%s AND retailer_id=%s",
+                        (payment_amount, inv_no, self.db.config.retailer_id))
 
             # Store the saved invoice number
             self._invoice_no = inv_no
@@ -784,11 +1043,13 @@ class SalesInvoiceDialog(tk.Toplevel):
                 if self.on_saved: 
                     self.on_saved()
                 self.destroy()
+            return True
                 
         except Exception as e:
             import logging
             logging.error(f"Sales invoice save error: {e}")
             messagebox.showerror("Error", str(e), parent=self)
+            return False
 
     def _create_with_no(self, data, inv_no):
         # Not needed anymore - integrated into _save method
@@ -796,18 +1057,26 @@ class SalesInvoiceDialog(tk.Toplevel):
 
     def _save_and_new(self):
         """Save & clear form for next invoice (used in bulk entry)."""
-        self._save(close_after=False)
+        if self._save(close_after=False):
+            self._reset_form()
+            if self.on_saved:
+                self.on_saved()
 
     def _reset_form(self):
         """Reset entire form for new invoice."""
         # Reset header
         self._invoice_no = None
+        self._edit_data = None
         self._customer_id = None
         self._prefetch_invoice_no()
         self.var_invoice_date.set(date.today().isoformat())
         self._cust_widget.set("")
         self._cust_info.set("")
         self.var_transport.set("0")
+        self.var_whole_disc_mode.set("whole")
+        self.var_whole_disc_type.set("percent")
+        self.var_whole_disc_val.set("0")
+        self._on_whole_disc_mode_change()
         
         # Clear items list and tree
         self._items = []
@@ -825,7 +1094,8 @@ class SalesInvoiceDialog(tk.Toplevel):
         """Save invoice and directly generate print-ready receipt (no preview)."""
         try:
             # Save the invoice first
-            self._save(close_after=False)
+            if not self._save(close_after=False):
+                return
             
             inv_no = self.var_invoice_no.get().strip()
             if not inv_no or inv_no == "(auto)":

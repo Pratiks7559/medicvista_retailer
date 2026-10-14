@@ -2,7 +2,11 @@ from __future__ import annotations
 
 import logging
 from contextlib import contextmanager
+from datetime import date
 from typing import Any, Iterable
+
+from .date_utils import parse_date
+from .inventory_date_sql import transaction_document_date_sql
 
 logger = logging.getLogger('retailer_sync')
 
@@ -29,6 +33,8 @@ class Database:
         self._lock = __import__('threading').Lock()   # serialise multi-thread access
         self._columns_cache: dict[tuple[str, str], bool] = {}
         self._tables_cache: dict[str, bool] = {}
+        self._invoice_financial_year_schema_ready = False
+        self._inventory_transaction_schema_ready = False
 
     def connect(self):
         if pymysql is None:
@@ -156,10 +162,12 @@ class Database:
         low_stock, out_stock, total_value = 0, 0, 0.0
         try:
             if self.table_exists("inventory_transaction"):
+                self._ensure_inventory_transaction_table()
                 date_filter = ""
                 params = [rid]
                 if fy_start and fy_end:
-                    date_filter = " AND DATE(t.transaction_date) BETWEEN %s AND %s"
+                    invoice_date = transaction_document_date_sql("t")
+                    date_filter = f" AND DATE({invoice_date}) BETWEEN %s AND %s"
                     params.extend([fy_start, fy_end])
                 rows = self.query(
                     f"""SELECT
@@ -233,8 +241,7 @@ class Database:
 
     def fetch_stock(self, search: str = "") -> list[dict[str, Any]]:
         """Batch-wise stock report from inventory_transaction table."""
-        if not self.table_exists("inventory_transaction"):
-            self._ensure_inventory_transaction_table()
+        self._ensure_inventory_transaction_table()
         rid = self.config.retailer_id
         search_clause = ""
         params: list[Any] = [rid]
@@ -341,8 +348,7 @@ class Database:
 
     def fetch_inventory(self, search: str = "") -> list[dict[str, Any]]:
         """Inventory data from inventory_transaction: purchase increases, sales decreases."""
-        if not self.table_exists("inventory_transaction"):
-            self._ensure_inventory_transaction_table()
+        self._ensure_inventory_transaction_table()
         rid = self.config.retailer_id
         search_clause = ""
         params: list[Any] = [rid]
@@ -394,22 +400,32 @@ class Database:
             r["status"] = "in_stock" if stock > 0 else "out_of_stock"
         return rows
 
-    def fetch_inventory_datewise(self, search: str = "", date_from: str = "", date_to: str = "") -> list[dict[str, Any]]:
-        """Date-wise inventory from inventory_transaction, optionally filtered by transaction_date."""
-        if not self.table_exists("inventory_transaction"):
-            self._ensure_inventory_transaction_table()
+    def fetch_inventory_datewise(
+        self,
+        search: str = "",
+        date_from: str = "",
+        date_to: str = "",
+        use_invoice_date: bool = False,
+    ) -> list[dict[str, Any]]:
+        """Fetch date-wise inventory, optionally filtering by transaction or invoice date."""
+        self._ensure_inventory_transaction_table()
         rid = self.config.retailer_id
         extra = ""
+        date_expression = (
+            f"DATE({transaction_document_date_sql('t')})"
+            if use_invoice_date
+            else "DATE(t.transaction_date)"
+        )
         params: list[Any] = [rid]
         if search:
             extra += " AND (p.product_name LIKE %s OR p.product_company LIKE %s OR p.product_hsn LIKE %s)"
             term = f"%{search}%"
             params += [term, term, term]
         if date_from:
-            extra += " AND DATE(t.transaction_date) >= %s"
+            extra += f" AND {date_expression} >= %s"
             params.append(date_from)
         if date_to:
-            extra += " AND DATE(t.transaction_date) <= %s"
+            extra += f" AND {date_expression} <= %s"
             params.append(date_to)
         rows = self.query(
             f"""SELECT
@@ -452,8 +468,7 @@ class Database:
 
     def fetch_inventory_stock_statement(self, search: str = "") -> list[dict[str, Any]]:
         """Stock statement from inventory_transaction: net stock per product."""
-        if not self.table_exists("inventory_transaction"):
-            self._ensure_inventory_transaction_table()
+        self._ensure_inventory_transaction_table()
         rid = self.config.retailer_id
         extra = ""
         params: list[Any] = [rid]
@@ -1078,18 +1093,112 @@ class Database:
         except Exception:
             pass
 
+    @staticmethod
+    def _invoice_financial_year(invoice_date: str) -> str:
+        normalized_date = parse_date(str(invoice_date))
+        if not normalized_date:
+            raise ValueError("Enter a valid invoice date.")
+        parsed_date = date.fromisoformat(normalized_date)
+        start_year = parsed_date.year if parsed_date.month >= 4 else parsed_date.year - 1
+        return f"{start_year}-{(start_year + 1) % 100:02d}"
+
+    def _ensure_invoice_financial_year_schema(self) -> None:
+        if self._invoice_financial_year_schema_ready:
+            return
+
+        with self.cursor() as cur:
+            cur.execute(
+                "SHOW COLUMNS FROM core_invoicemaster LIKE %s",
+                ("invoice_financial_year",),
+            )
+            financial_year_column = cur.fetchone()
+            needs_date_backfill = financial_year_column is None
+            if financial_year_column is None:
+                cur.execute(
+                    "ALTER TABLE core_invoicemaster "
+                    "ADD COLUMN invoice_financial_year VARCHAR(7) NULL"
+                )
+            elif financial_year_column["Type"].lower() != "varchar(7)":
+                needs_date_backfill = True
+                cur.execute(
+                    "ALTER TABLE core_invoicemaster "
+                    "MODIFY COLUMN invoice_financial_year VARCHAR(7) NULL"
+                )
+
+            backfill_condition = "" if needs_date_backfill else (
+                " WHERE invoice_financial_year IS NULL "
+                "OR invoice_financial_year REGEXP '^[0-9]{4}$'"
+            )
+            cur.execute(
+                """UPDATE core_invoicemaster
+                   SET invoice_financial_year = CONCAT(
+                       YEAR(invoice_date) - (MONTH(invoice_date) < 4),
+                       '-',
+                       LPAD(MOD(YEAR(invoice_date) - (MONTH(invoice_date) < 4) + 1, 100), 2, '0')
+                   )"""
+                + backfill_condition
+            )
+            if needs_date_backfill or financial_year_column["Null"] == "YES":
+                cur.execute(
+                    "ALTER TABLE core_invoicemaster "
+                    "MODIFY COLUMN invoice_financial_year VARCHAR(7) NOT NULL"
+                )
+            cur.execute("SHOW INDEX FROM core_invoicemaster")
+            index_names = {row["Key_name"] for row in cur.fetchall()}
+
+            if "unique_supplier_invoice_fy" not in index_names:
+                cur.execute(
+                    "ALTER TABLE core_invoicemaster "
+                    "ADD CONSTRAINT unique_supplier_invoice_fy "
+                    "UNIQUE (invoice_no, supplierid_id, invoice_financial_year)"
+                )
+            if "unique_invoiceno_supplierid" in index_names:
+                cur.execute(
+                    "ALTER TABLE core_invoicemaster "
+                    "DROP INDEX unique_invoiceno_supplierid"
+                )
+
+        self._columns_cache[("core_invoicemaster", "invoice_financial_year")] = True
+        self._invoice_financial_year_schema_ready = True
+
+    def invoice_number_exists_for_supplier_fy(
+        self,
+        invoice_no: str,
+        supplier_id: int,
+        invoice_date: str,
+        exclude_invoice_id: int | None = None,
+    ) -> bool:
+        self._ensure_invoice_financial_year_schema()
+        financial_year = self._invoice_financial_year(invoice_date)
+        exclude_filter = " AND invoiceid<>%s" if exclude_invoice_id is not None else ""
+        params = [invoice_no, supplier_id, self.config.retailer_id, financial_year]
+        if exclude_invoice_id is not None:
+            params.append(exclude_invoice_id)
+
+        invoices = self.query(
+            """SELECT invoice_financial_year
+               FROM core_invoicemaster
+               WHERE invoice_no=%s AND supplierid_id=%s AND retailer_id=%s
+                 AND invoice_financial_year=%s"""
+            + exclude_filter,
+            params,
+        )
+        return bool(invoices)
+
     def create_invoice(self, data: dict) -> int:
         """Insert InvoiceMaster, return new invoiceid."""
         self._ensure_whole_discount_column()
+        self._ensure_invoice_financial_year_schema()
+        financial_year = self._invoice_financial_year(data["invoice_date"])
         with self.cursor() as cur:
             cur.execute(
                 """INSERT INTO core_invoicemaster
-                   (retailer_id, invoice_no, invoice_date, supplierid_id,
+                   (retailer_id, invoice_no, invoice_date, invoice_financial_year, supplierid_id,
                     transport_charges, invoice_total, whole_discount_amount, invoice_paid, payment_status)
-                   VALUES (%s,%s,%s,%s,%s,%s,%s,0,'pending')""",
+                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,0,'pending')""",
                 (
                     self.config.retailer_id,
-                    data["invoice_no"], data["invoice_date"],
+                    data["invoice_no"], data["invoice_date"], financial_year,
                     data["supplierid"], data.get("transport_charges", 0),
                     data.get("invoice_total", 0),
                     data.get("whole_discount_amount", 0),
@@ -1098,12 +1207,14 @@ class Database:
             return cur.lastrowid
 
     def update_invoice(self, invoice_id: int, data: dict) -> None:
+        self._ensure_invoice_financial_year_schema()
+        financial_year = self._invoice_financial_year(data["invoice_date"])
         self.execute(
             """UPDATE core_invoicemaster
-               SET invoice_no=%s, invoice_date=%s, supplierid_id=%s,
+               SET invoice_no=%s, invoice_date=%s, invoice_financial_year=%s, supplierid_id=%s,
                    transport_charges=%s, invoice_total=%s, whole_discount_amount=%s
                WHERE invoiceid=%s""",
-            (data["invoice_no"], data["invoice_date"], data["supplierid"],
+            (data["invoice_no"], data["invoice_date"], financial_year, data["supplierid"],
              data.get("transport_charges", 0), data.get("invoice_total", 0),
              data.get("whole_discount_amount", 0),
              invoice_id)
@@ -1155,31 +1266,93 @@ class Database:
         pass
 
     def _ensure_inventory_transaction_table(self) -> None:
-        self.execute(
-            """CREATE TABLE IF NOT EXISTS inventory_transaction (
-                id BIGINT AUTO_INCREMENT PRIMARY KEY,
-                retailer_id BIGINT,
-                product_id BIGINT NOT NULL,
-                batch_no VARCHAR(100) DEFAULT '',
-                expiry_date VARCHAR(20) DEFAULT '',
-                transaction_type VARCHAR(50) NOT NULL,
-                quantity DECIMAL(12,3) DEFAULT 0,
-                free_quantity DECIMAL(12,3) DEFAULT 0,
-                transaction_date DATETIME,
-                reference_type VARCHAR(50) DEFAULT '',
-                reference_id BIGINT DEFAULT 0,
-                reference_number VARCHAR(100) DEFAULT '',
-                rate DECIMAL(12,4) DEFAULT 0,
-                mrp DECIMAL(12,4) DEFAULT 0,
-                total_value DECIMAL(14,2) DEFAULT 0,
-                created_at DATETIME,
-                created_by_id BIGINT DEFAULT NULL,
-                remarks VARCHAR(1000) DEFAULT '',
-                INDEX idx_retailer_product (retailer_id, product_id),
-                INDEX idx_transaction_type (transaction_type)
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;"""
-        )
+        if self._inventory_transaction_schema_ready:
+            return
+        with self.cursor() as cur:
+            cur.execute(
+                """CREATE TABLE IF NOT EXISTS inventory_transaction (
+                    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+                    retailer_id BIGINT,
+                    product_id BIGINT NOT NULL,
+                    batch_no VARCHAR(100) DEFAULT '',
+                    expiry_date VARCHAR(20) DEFAULT '',
+                    transaction_type VARCHAR(50) NOT NULL,
+                    quantity DECIMAL(12,3) DEFAULT 0,
+                    free_quantity DECIMAL(12,3) DEFAULT 0,
+                    transaction_date DATETIME,
+                    invoice_date DATE NULL,
+                    reference_type VARCHAR(50) DEFAULT '',
+                    reference_id BIGINT DEFAULT 0,
+                    reference_number VARCHAR(100) DEFAULT '',
+                    rate DECIMAL(12,4) DEFAULT 0,
+                    mrp DECIMAL(12,4) DEFAULT 0,
+                    total_value DECIMAL(14,2) DEFAULT 0,
+                    created_at DATETIME,
+                    created_by_id BIGINT DEFAULT NULL,
+                    remarks VARCHAR(1000) DEFAULT '',
+                    INDEX idx_retailer_product (retailer_id, product_id),
+                    INDEX idx_transaction_type (transaction_type)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"""
+            )
+            cur.execute("SHOW COLUMNS FROM inventory_transaction LIKE %s", ("invoice_date",))
+            if not cur.fetchone():
+                cur.execute(
+                    "ALTER TABLE inventory_transaction ADD COLUMN invoice_date DATE NULL"
+                )
+
+            cur.execute(
+                """UPDATE inventory_transaction t
+                   JOIN core_purchasemaster pm
+                     ON pm.purchaseid = t.reference_id
+                    AND pm.retailer_id = t.retailer_id
+                   JOIN core_invoicemaster i
+                     ON i.invoiceid = pm.product_invoiceid_id
+                    AND i.retailer_id = t.retailer_id
+                    AND i.invoice_no = t.reference_number
+                   SET t.invoice_date = i.invoice_date
+                   WHERE t.invoice_date IS NULL
+                     AND t.transaction_type IN ('PURCHASE', 'REVERT_PURCHASE')"""
+            )
+            cur.execute(
+                """UPDATE inventory_transaction t
+                   JOIN core_invoicemaster i
+                     ON i.invoiceid = t.reference_id
+                    AND i.retailer_id = t.retailer_id
+                    AND i.invoice_no = t.reference_number
+                   SET t.invoice_date = i.invoice_date
+                   WHERE t.invoice_date IS NULL
+                     AND t.transaction_type IN ('PURCHASE', 'REVERT_PURCHASE')"""
+            )
+            cur.execute(
+                """UPDATE inventory_transaction t
+                   JOIN core_salesinvoicemaster si
+                     ON si.sales_invoice_no = t.reference_number
+                    AND si.retailer_id = t.retailer_id
+                   SET t.invoice_date = si.sales_invoice_date
+                   WHERE t.invoice_date IS NULL
+                     AND t.transaction_type IN ('SALE', 'REVERT_SALE')"""
+            )
+            cur.execute(
+                """UPDATE inventory_transaction t
+                   JOIN core_returninvoicemaster ri
+                     ON ri.returninvoiceid = t.reference_number
+                    AND ri.retailer_id = t.retailer_id
+                   SET t.invoice_date = ri.returninvoice_date
+                   WHERE t.invoice_date IS NULL
+                     AND t.transaction_type IN ('PURCHASE_RETURN', 'REVERT_PURCHASE_RETURN')"""
+            )
+            cur.execute(
+                """UPDATE inventory_transaction t
+                   JOIN core_returnsalesinvoicemaster rsi
+                     ON rsi.return_sales_invoice_no = t.reference_number
+                    AND rsi.retailer_id = t.retailer_id
+                   SET t.invoice_date = rsi.return_sales_invoice_date
+                   WHERE t.invoice_date IS NULL
+                     AND t.transaction_type IN ('SALES_RETURN', 'REVERT_SALES_RETURN')"""
+            )
         self._tables_cache["inventory_transaction"] = True
+        self._columns_cache[("inventory_transaction", "invoice_date")] = True
+        self._inventory_transaction_schema_ready = True
 
     def log_inventory_transaction(
         self,
@@ -1196,16 +1369,46 @@ class Database:
         mrp: float,
         total_value: float,
         remarks: str = "",
+        invoice_date: str | None = None,
     ) -> None:
         try:
-            if not self.table_exists("inventory_transaction"):
-                self._ensure_inventory_transaction_table()
+            self._ensure_inventory_transaction_table()
+            if invoice_date is None:
+                invoice_query = {
+                    "PURCHASE": (
+                        "SELECT invoice_date FROM core_invoicemaster "
+                        "WHERE invoiceid=%s AND retailer_id=%s",
+                        (reference_id, self.config.retailer_id),
+                    ),
+                    "SALE": (
+                        "SELECT sales_invoice_date AS invoice_date "
+                        "FROM core_salesinvoicemaster "
+                        "WHERE sales_invoice_no=%s AND retailer_id=%s",
+                        (reference_number, self.config.retailer_id),
+                    ),
+                    "PURCHASE_RETURN": (
+                        "SELECT returninvoice_date AS invoice_date "
+                        "FROM core_returninvoicemaster "
+                        "WHERE returninvoiceid=%s AND retailer_id=%s",
+                        (reference_number, self.config.retailer_id),
+                    ),
+                    "SALES_RETURN": (
+                        "SELECT return_sales_invoice_date AS invoice_date "
+                        "FROM core_returnsalesinvoicemaster "
+                        "WHERE return_sales_invoice_no=%s AND retailer_id=%s",
+                        (reference_number, self.config.retailer_id),
+                    ),
+                }.get(transaction_type)
+                if invoice_query:
+                    invoice_rows = self.query(*invoice_query)
+                    if invoice_rows:
+                        invoice_date = invoice_rows[0].get("invoice_date")
             self.execute(
                 "INSERT INTO inventory_transaction "
                 "(retailer_id, product_id, batch_no, expiry_date, transaction_type, "
-                "quantity, free_quantity, transaction_date, reference_type, reference_id, "
+                "quantity, free_quantity, transaction_date, invoice_date, reference_type, reference_id, "
                 "reference_number, rate, mrp, total_value, created_at, created_by_id, remarks) "
-                "VALUES (%s,%s,%s,%s,%s,%s,%s,NOW(),%s,%s,%s,%s,%s,%s,NOW(),%s,%s)",
+                "VALUES (%s,%s,%s,%s,%s,%s,%s,NOW(),%s,%s,%s,%s,%s,%s,%s,NOW(),%s,%s)",
                 (
                     self.config.retailer_id,
                     product_id,
@@ -1214,6 +1417,7 @@ class Database:
                     transaction_type,
                     quantity,
                     free_quantity,
+                    invoice_date,
                     reference_type,
                     reference_id,
                     reference_number,

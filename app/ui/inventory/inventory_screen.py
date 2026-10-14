@@ -2,6 +2,8 @@ import tkinter as tk
 from tkinter import ttk, messagebox
 from datetime import datetime
 
+from ...inventory_date_sql import transaction_document_date_sql
+
 BG      = "#f1f5f9"; CARD    = "#ffffff"; BDR     = "#e2e8f0"
 TXT     = "#1e293b"; MUTED   = "#64748b"; DARK    = "#0f172a"
 BLUE    = "#3b82f6"; BLUE_H  = "#2563eb"; BLUE_L  = "#eff6ff"
@@ -484,7 +486,9 @@ class InventoryScreen(tk.Frame):
             messagebox.showerror("Error", f"Export failed: {e}")
     
     def _fetch_fy_movement(self, search: str, fy_start: str, fy_end: str):
+        self.app.db._ensure_inventory_transaction_table()
         rid = self.app.config_data.retailer_id
+        document_date = transaction_document_date_sql("t")
         
         if search:
             search_clause = " AND (p.product_name LIKE %s OR p.product_company LIKE %s)"
@@ -504,7 +508,7 @@ class InventoryScreen(tk.Frame):
                    COALESCE(MAX(t.mrp), 0) AS mrp,
                    COALESCE(MAX(t.rate), 0) AS purchase_rate,
                    COALESCE(SUM(CASE
-                       WHEN DATE(t.transaction_date) < %s THEN
+                       WHEN DATE({document_date}) < %s THEN
                            CASE
                                WHEN t.transaction_type = 'PURCHASE' THEN t.quantity
                                WHEN t.transaction_type = 'PURCHASE_RETURN' THEN -t.quantity
@@ -513,10 +517,10 @@ class InventoryScreen(tk.Frame):
                                ELSE 0 END
                        ELSE 0 END), 0) AS opening_stock,
                    COALESCE(SUM(CASE
-                       WHEN DATE(t.transaction_date) BETWEEN %s AND %s AND t.transaction_type = 'PURCHASE'
+                       WHEN DATE({document_date}) BETWEEN %s AND %s AND t.transaction_type = 'PURCHASE'
                        THEN t.quantity ELSE 0 END), 0) AS fy_purchases,
                    COALESCE(SUM(CASE
-                       WHEN DATE(t.transaction_date) BETWEEN %s AND %s AND t.transaction_type = 'SALE'
+                       WHEN DATE({document_date}) BETWEEN %s AND %s AND t.transaction_type = 'SALE'
                        THEN t.quantity ELSE 0 END), 0) AS fy_sales,
                    COALESCE(SUM(CASE
                        WHEN t.transaction_type = 'PURCHASE' THEN t.quantity

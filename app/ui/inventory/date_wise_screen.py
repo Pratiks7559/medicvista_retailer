@@ -304,7 +304,12 @@ class DateWiseScreen(tk.Frame):
             to = fy_end
         
         try:
-            self._rows = self.app.db.fetch_inventory_datewise(term, frm, to)
+            self._rows = self.app.db.fetch_inventory_datewise(
+                term,
+                frm,
+                to,
+                use_invoice_date=current_mode == "fy" and bool(fy_start and fy_end),
+            )
         except Exception as ex:
             messagebox.showerror("Error", str(ex), parent=self); return
 
